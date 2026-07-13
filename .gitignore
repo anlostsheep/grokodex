@@ -25,3 +25,6 @@ coverage/
 
 # NOTE: bridge/dist is intentionally tracked (prebuilt MCP for zero-compile install).
 # Do NOT add bridge/dist to this file.
+
+# Local agent session scratch (not part of the product)
+.superpowers/
