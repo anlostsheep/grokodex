@@ -45,46 +45,32 @@ Windows（PowerShell）：
 irm https://x.ai/cli/install.ps1 | iex
 ```
 
-不捆绑 `grok` 二进制；不需要在安装插件时再编译 TypeScript（仓库提交了 `bridge/dist/`）。
+不捆绑 `grok` 二进制。运行时使用 **esbuild 单文件** `bridge/dist/bundle.mjs`，**不需要**为了启动 MCP 再执行 `npm install`（开发改代码时用 `npm i && npm run build`）。
 
 ---
 
-## 3. 安装路径 A（Personal marketplace）
+## 3. 安装路径 A（Codex App 插件页）
 
-MVP **仅**支持此路径。手改 `config.toml` MCP 仅作开发旁路，不作为验收。
+在 **设置 → 插件** 中安装/启用。CLI 与 App 共用同一套 marketplace 与 `~/.codex/config.toml`。
 
-### 3.1 放置插件
+### 3.1 本机当前状态（已配好时可跳过 3.2）
 
-将本仓库 clone 到稳定路径，例如：
+开发机上若已安装，`codex plugin list` 应出现：
 
-```bash
-git clone <本仓库 URL> ~/developer/project/grok-project
-# 或复制到 ~/.codex/plugins/grokodex
+```text
+grokodex@personal  installed, enabled
 ```
 
-在**插件根目录**安装 Node 依赖（bridge 运行时需要 `@modelcontextprotocol/sdk`；`node_modules` 不随插件拷贝逻辑保证存在）：
+你只需要：
 
-```bash
-cd /path/to/grok-project
-npm install
-```
+1. **完全退出并重启 Codex App**
+2. 打开 **设置 → 插件**，在 **Personal** / 已安装中确认 **Grokodex** 开关为开
+3. **新开会话** 再测（旧会话可能看不到新 skills/MCP）
 
-### 3.2 登记 Personal marketplace
+### 3.2 从零配置（换机或重装时）
 
-目标文件：`~/.agents/plugins/marketplace.json`
-
-1. 若文件不存在：复制仓库根目录的 `marketplace.example.json`：
-
-   ```bash
-   mkdir -p ~/.agents/plugins
-   cp /path/to/grok-project/marketplace.example.json ~/.agents/plugins/marketplace.json
-   ```
-
-2. 若已有 marketplace：合并 `plugins` 数组，加入 `grokodex` 条目（参考示例文件）。
-
-3. **改 `source.path`**：路径相对 `~/.agents/plugins/`，必须以 `./` 开头，指向插件根（含 `.codex-plugin/`、`skills/`、`bridge/dist/` 的目录）。
-
-示例（按你的实际相对路径改写）：
+1. 插件实体目录：`~/.codex/plugins/grokodex`（内含 `.codex-plugin/`、`skills/`、`bridge/dist/bundle.mjs`、`.mcp.json`）
+2. Personal marketplace：`~/.agents/plugins/marketplace.json`，`source.path` 相对 **`$HOME`**：
 
 ```json
 {
@@ -95,7 +81,7 @@ npm install
       "name": "grokodex",
       "source": {
         "source": "local",
-        "path": "./../../../developer/project/grok-project"
+        "path": "./.codex/plugins/grokodex"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -107,22 +93,22 @@ npm install
 }
 ```
 
-仓库内完整模板见 [`marketplace.example.json`](./marketplace.example.json)。
+3. CLI 安装并启用：
 
-### 3.3 启用
+```bash
+codex plugin add grokodex@personal
+# 或在 App 插件页 Install；config 中 [plugins."grokodex@personal"] enabled = true
+```
 
-1. **完全重启** Codex App（退出再开，确保重新加载 marketplace）。
-2. 打开 **Plugins** → 个人 / Personal marketplace。
-3. 找到 **Grokodex** → **Install** → **Enable**。
-4. **新开一个会话** 再测（旧会话可能看不到 skills / MCP）。
+模板见 [`marketplace.example.json`](./marketplace.example.json)。
 
-### 3.4 快速自检
+### 3.3 快速自检
 
-在新会话中：
+新会话中：
 
-- 应能看到 skills：`grokodex-setup`、`grokodex-run`、`grokodex-imagine`、`grokodex-x-search`
-- 先跑 setup：让助手调用 `grok_setup`，确认 `auth_ok` / 路径正常
-- 再试一条 `grok_run` 或生图 / 搜 X
+- skills：`grokodex-setup` / `grokodex-run` / `grokodex-imagine` / `grokodex-x-search`
+- 先 `grok_setup`（`auth_ok`）
+- 再试 `grok_run` 或生图 / 搜 X
 
 ---
 
