@@ -1,7 +1,7 @@
 import { resolveGrokBinary, type WhichFn } from "../grok-bin.js";
 import { resolvePermissionForImagine } from "../permission.js";
 import { runGrok } from "../runner.js";
-import type { ToolEnvelope } from "../types.js";
+import type { Artifact, ToolEnvelope } from "../types.js";
 export interface GrokImagineArgs {
     prompt: string;
     aspect_ratio?: string;
@@ -32,10 +32,24 @@ export declare function buildImaginePrompt(opts: {
     aspectRatio: string;
 }): string;
 /**
- * Extract absolute-looking file paths (prefer image extensions) from free text.
- * Exported for unit tests.
+ * Extract image path strings from free text (absolute, relative, bare filenames).
+ * Exported for unit tests. Paths are not resolved here.
  */
 export declare function extractImagePaths(text: string): string[];
+export interface FsLike {
+    existsSync: (p: string) => boolean;
+    readdirSync?: (p: string) => string[];
+    /** mtime ms; optional for tests */
+    mtimeMs?: (p: string) => number;
+}
+/**
+ * Resolve extracted path tokens + scan save_dir into concrete image artifacts.
+ * Prefers existing files under saveDirAbs.
+ */
+export declare function collectImagineArtifacts(text: string, saveDirAbs: string, cwd: string, fs?: FsLike): {
+    artifacts: Artifact[];
+    notes: string[];
+};
 /**
  * Run a constrained headless Grok image-generation task.
  * Always uses restricted-class CLI (never full shell inherit).

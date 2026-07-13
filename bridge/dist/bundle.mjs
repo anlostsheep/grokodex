@@ -15861,8 +15861,8 @@ function extractLastJsonObject(s) {
 }
 
 // bridge/src/tools/imagine.ts
-import { existsSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { basename, isAbsolute, join, resolve } from "node:path";
 var DEFAULT_TIMEOUT_MS = 6e5;
 var STDERR_TRUNCATE = 2e3;
 var IMAGE_EXT_RE = /\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif)\b/i;
@@ -15877,6 +15877,8 @@ function buildImaginePrompt(opts) {
     prompt,
     "",
     "When done, reply with the absolute path(s) of the saved image file(s).",
+    "Prefer a final line like: ARTIFACT: /absolute/path/to/file.png",
+    'You may also include a JSON object: {"artifacts":[{"type":"image","path":"/abs/path.png"}]}',
     "",
     "## Extra rules",
     `Only write files under: ${saveDirAbs}`,
@@ -15889,18 +15891,34 @@ function extractImagePaths(text) {
   const found = [];
   const seen = /* @__PURE__ */ new Set();
   const candidates = [];
+  const artifactLineRe = /ARTIFACT\s*[:=]?\s*[`"'"]?([^\s`"'"]+\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif))[`"'"]?/gi;
+  let m;
+  while ((m = artifactLineRe.exec(text)) !== null) {
+    candidates.push(m[1]);
+  }
+  const jsonPathRe = /"path"\s*:\s*"((?:\\.|[^"\\])+?\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif))"/gi;
+  while ((m = jsonPathRe.exec(text)) !== null) {
+    candidates.push(m[1].replace(/\\"/g, '"'));
+  }
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim().replace(/^[`"'\[\]]+|[`"'\[\],;]+$/g, "");
     if (!line || /\s/.test(line)) continue;
-    if (isPathOnly(line)) candidates.push(line);
+    if (isPathOnly(line) || isBareImageName(line)) candidates.push(line);
+  }
+  const mdRe = /(?:!?\[[^\]]*\]\(|['"`(:=\s])(\.?\.?\/?(?:[\w.@%+\-]+\/)*[\w.@%+\-]+\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif))(?:\)|['"`\s,]|$)/gi;
+  while ((m = mdRe.exec(text)) !== null) {
+    candidates.push(m[1]);
   }
   const inlineRe = /(?:^|[\s"'`(:=])(\/(?:[\w.@%+\-]+\/)+[\w.@%+\-]+\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif))\b/gi;
-  let m;
   while ((m = inlineRe.exec(text)) !== null) {
     candidates.push(m[1]);
   }
   const winRe = /(?:^|[\s"'`(:=])([A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif))\b/gi;
   while ((m = winRe.exec(text)) !== null) {
+    candidates.push(m[1]);
+  }
+  const bareRe = /(?:^|[\s"'`(/:=])([\w.@%+\-]+\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif))\b/gi;
+  while ((m = bareRe.exec(text)) !== null) {
     candidates.push(m[1]);
   }
   for (const c of candidates) {
@@ -15919,7 +15937,91 @@ function isPathOnly(s) {
   if (isAbsolute(s)) return true;
   if (/^[A-Za-z]:[\\/]/.test(s)) return true;
   if (s.startsWith("./") || s.startsWith("../")) return true;
+  if (s.includes("/") || s.includes("\\")) return IMAGE_EXT_RE.test(s);
   return false;
+}
+function isBareImageName(s) {
+  if (s.length < 3 || s.length > 255) return false;
+  if (/\s/.test(s) || s.includes("/") || s.includes("\\")) return false;
+  return IMAGE_EXT_RE.test(s);
+}
+function collectImagineArtifacts(text, saveDirAbs, cwd, fs = { existsSync }) {
+  const notes = [];
+  const ordered = [];
+  const seen = /* @__PURE__ */ new Set();
+  const push = (p) => {
+    if (!p) return;
+    const abs = resolveCandidatePath(p, saveDirAbs, cwd);
+    if (!abs || seen.has(abs)) return;
+    seen.add(abs);
+    ordered.push(abs);
+  };
+  for (const raw of extractImagePaths(text)) {
+    push(raw);
+  }
+  let existing = ordered.filter((p) => fs.existsSync(p));
+  if (existing.length === 0) {
+    const scanned = scanSaveDirImages(saveDirAbs, fs);
+    if (scanned.length > 0) {
+      notes.push(
+        `Resolved image path(s) by scanning save_dir (${saveDirAbs}).`
+      );
+      for (const p of scanned) push(p);
+      existing = ordered.filter((p) => fs.existsSync(p));
+    }
+  }
+  const finalPaths = existing.length > 0 ? existing : ordered;
+  const artifacts = finalPaths.map((path) => ({
+    type: "image",
+    path
+  }));
+  if (artifacts.length === 0) {
+    notes.push(
+      "No image path found in Grok output; inspect text manually for saved files under save_dir."
+    );
+  } else if (existing.length === 0 && ordered.length > 0) {
+    notes.push(
+      "Image path(s) taken from Grok text but file(s) not found on disk at response time."
+    );
+  }
+  return { artifacts, notes };
+}
+function resolveCandidatePath(raw, saveDirAbs, cwd) {
+  const cleaned = raw.trim().replace(/^['"`]+|['"`]+$/g, "");
+  if (!cleaned) return null;
+  if (isAbsolute(cleaned) || /^[A-Za-z]:[\\/]/.test(cleaned)) {
+    return cleaned;
+  }
+  if (isBareImageName(cleaned) || !cleaned.includes("/") && !cleaned.includes("\\") && IMAGE_EXT_RE.test(cleaned)) {
+    return resolve(saveDirAbs, basename(cleaned));
+  }
+  if (cleaned.startsWith("./") || cleaned.startsWith("../")) {
+    return resolve(saveDirAbs, cleaned);
+  }
+  if (IMAGE_EXT_RE.test(cleaned)) {
+    return resolve(saveDirAbs, cleaned);
+  }
+  return resolve(cwd, cleaned);
+}
+function scanSaveDirImages(saveDirAbs, fs) {
+  if (!fs.existsSync(saveDirAbs)) return [];
+  const read = fs.readdirSync ?? ((p) => readdirSync(p));
+  const mtime = fs.mtimeMs ?? ((p) => {
+    try {
+      return statSync(p).mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
+  let names = [];
+  try {
+    names = read(saveDirAbs);
+  } catch {
+    return [];
+  }
+  const files = names.filter((n) => IMAGE_EXT_RE.test(n)).map((n) => resolve(saveDirAbs, n)).filter((p) => fs.existsSync(p));
+  files.sort((a, b) => mtime(b) - mtime(a));
+  return files;
 }
 function defaultWhich(env) {
   return () => findInPath(
@@ -16020,22 +16122,30 @@ async function handleGrokImagine(args, deps) {
     }
     const parsed = parseGrokJsonOutput(result.stdout);
     const text = parsed?.text ?? (result.stdout.trim() ? result.stdout.trim() : void 0);
-    const paths = extractImagePaths(text ?? "");
-    const artifacts = paths.map((path) => ({
-      type: "image",
-      path
-    }));
-    const notes = [...perm.audit.notes];
-    if (artifacts.length === 0) {
-      notes.push(
-        "No image path found in Grok output; inspect text manually for saved files under save_dir."
-      );
-    }
+    const harvestText = [text ?? "", result.stdout ?? "", result.stderr ?? ""].filter(Boolean).join("\n");
+    const { artifacts, notes: harvestNotes } = collectImagineArtifacts(
+      harvestText,
+      saveDirAbs,
+      cwd,
+      {
+        existsSync: exists,
+        readdirSync: (p) => readdirSync(p),
+        mtimeMs: (p) => {
+          try {
+            return statSync(p).mtimeMs;
+          } catch {
+            return 0;
+          }
+        }
+      }
+    );
+    const notes = [...perm.audit.notes, ...harvestNotes];
     return okResult("grok_imagine", {
       text,
       session_id: parsed?.sessionId,
       permission_mode: "restricted",
       permission: { ...perm.audit, notes },
+      // Always set artifacts array when non-empty so MCP clients can rely on the field
       artifacts: artifacts.length > 0 ? artifacts : void 0,
       meta: {
         duration_ms: result.durationMs,
@@ -16043,7 +16153,8 @@ async function handleGrokImagine(args, deps) {
         save_dir: saveDirAbs,
         aspect_ratio: aspectRatio,
         model: args.model,
-        exit_code: result.code
+        exit_code: result.code,
+        artifact_count: artifacts.length
       }
     });
   } catch (err) {
@@ -16211,10 +16322,10 @@ import { spawn } from "node:child_process";
 // bridge/src/auth-check.ts
 import { homedir } from "node:os";
 import { join as join3 } from "node:path";
-import { existsSync as existsSync3, readFileSync, statSync } from "node:fs";
+import { existsSync as existsSync3, readFileSync, statSync as statSync2 } from "node:fs";
 function defaultFileSize(path) {
   try {
-    return statSync(path).size;
+    return statSync2(path).size;
   } catch {
     return null;
   }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   buildImaginePrompt,
+  collectImagineArtifacts,
   extractImagePaths,
   handleGrokImagine,
 } from "../src/tools/imagine.js";
@@ -83,6 +84,57 @@ describe("extractImagePaths", () => {
     expect(paths).toContain("/Users/me/.grokodex/images/cat.png");
     expect(paths.every((p) => /\.(png|jpe?g|webp|gif)/i.test(p))).toBe(true);
   });
+
+  it("pulls bare image filenames like Grok often returns", () => {
+    const paths = extractImagePaths(
+      "Generated icon.\nPath: g-plugin-icon.jpg\n34 KB",
+    );
+    expect(paths).toContain("g-plugin-icon.jpg");
+  });
+
+  it("pulls ARTIFACT: lines and JSON path fields", () => {
+    const paths = extractImagePaths(
+      'ARTIFACT: /tmp/work/.grokodex/images/a.png\n{"path":"/tmp/work/.grokodex/images/b.webp"}',
+    );
+    expect(paths).toContain("/tmp/work/.grokodex/images/a.png");
+    expect(paths).toContain("/tmp/work/.grokodex/images/b.webp");
+  });
+});
+
+describe("collectImagineArtifacts", () => {
+  it("resolves bare filename under save_dir and sets artifacts", () => {
+    const saveDir = "/tmp/work/.grokodex/images";
+    const abs = `${saveDir}/g-plugin-icon.jpg`;
+    const { artifacts, notes } = collectImagineArtifacts(
+      "saved as g-plugin-icon.jpg",
+      saveDir,
+      "/tmp/work",
+      {
+        existsSync: (p) => p === abs || p === saveDir,
+        readdirSync: () => ["g-plugin-icon.jpg"],
+        mtimeMs: () => 100,
+      },
+    );
+    expect(artifacts).toEqual([{ type: "image", path: abs }]);
+    expect(notes.some((n) => /no image path/i.test(n))).toBe(false);
+  });
+
+  it("scans save_dir when text has no path", () => {
+    const saveDir = "/tmp/work/.grokodex/images";
+    const abs = `${saveDir}/newest.png`;
+    const { artifacts, notes } = collectImagineArtifacts(
+      "Image generated successfully.",
+      saveDir,
+      "/tmp/work",
+      {
+        existsSync: (p) => p === saveDir || p === abs || p.endsWith(".png"),
+        readdirSync: () => ["older.jpg", "newest.png"],
+        mtimeMs: (p) => (p.endsWith("newest.png") ? 200 : 100),
+      },
+    );
+    expect(artifacts[0]?.path).toBe(abs);
+    expect(notes.some((n) => /scanning save_dir/i.test(n))).toBe(true);
+  });
 });
 
 describe("handleGrokImagine", () => {
@@ -162,7 +214,7 @@ describe("handleGrokImagine", () => {
     }
   });
 
-  it("ok with notes when exit 0 but no image path in text", async () => {
+  it("ok with notes when exit 0 but no image path and empty save_dir", async () => {
     const deps = mockDeps({
       run: async () => ({
         code: 0,
@@ -172,6 +224,8 @@ describe("handleGrokImagine", () => {
         durationMs: 10,
       }),
     });
+    // No files on disk under save_dir
+    deps.existsSync = () => false;
 
     const env = await handleGrokImagine({ prompt: "dog" }, deps);
     expect(env.ok).toBe(true);
@@ -181,6 +235,32 @@ describe("handleGrokImagine", () => {
         true,
       );
       expect(env.text).toMatch(/generated successfully/i);
+    }
+  });
+
+  it("returns artifacts when Grok only prints bare filename", async () => {
+    const abs = "/tmp/work/.grokodex/images/g-plugin-icon.jpg";
+    const deps = mockDeps({
+      run: async () => ({
+        code: 0,
+        stdout: JSON.stringify({
+          text: "Done. Path: g-plugin-icon.jpg",
+        }),
+        stderr: "",
+        timedOut: false,
+        durationMs: 50,
+      }),
+    });
+    deps.existsSync = (p: string) =>
+      p === abs ||
+      p === "/tmp/work/.grokodex/images" ||
+      p === "/opt/grok";
+
+    const env = await handleGrokImagine({ prompt: "icon" }, deps);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      expect(env.artifacts).toEqual([{ type: "image", path: abs }]);
+      expect(env.meta?.artifact_count).toBe(1);
     }
   });
 
