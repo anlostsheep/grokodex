@@ -69,12 +69,19 @@ export async function handleGrokRun(args, deps) {
             return failResult("grok_run", resolved.error, resolved.message, "Install the Grok CLI, ensure `grok` is on PATH, or set GROK_PATH");
         }
         const mode = normalized.permission_mode ?? deps.config.default_permission;
+        const envSandboxRaw = env.GROKODEX_CODEX_SANDBOX?.trim();
+        const envSandbox = envSandboxRaw === "read-only" ||
+            envSandboxRaw === "workspace-write" ||
+            envSandboxRaw === "danger-full-access"
+            ? envSandboxRaw
+            : null;
         const perm = deps.resolvePerm({
             mode,
             codex_sandbox: normalized.codex_sandbox,
             codex_approval: normalized.codex_approval,
             allow_inherit: deps.config.allow_inherit,
             allow_full_access_inherit: deps.config.allow_full_access_inherit,
+            envSandbox,
         });
         if (!perm.ok) {
             return failWithPermission(perm.code, perm.message, perm.hint, perm.audit);

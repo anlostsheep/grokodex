@@ -156,12 +156,21 @@ export async function handleGrokRun(
     const mode: PermissionMode =
       normalized.permission_mode ?? deps.config.default_permission;
 
+    const envSandboxRaw = env.GROKODEX_CODEX_SANDBOX?.trim();
+    const envSandbox: CodexSandbox | null =
+      envSandboxRaw === "read-only" ||
+      envSandboxRaw === "workspace-write" ||
+      envSandboxRaw === "danger-full-access"
+        ? envSandboxRaw
+        : null;
+
     const perm = deps.resolvePerm({
       mode,
       codex_sandbox: normalized.codex_sandbox,
       codex_approval: normalized.codex_approval,
       allow_inherit: deps.config.allow_inherit,
       allow_full_access_inherit: deps.config.allow_full_access_inherit,
+      envSandbox,
     });
 
     if (!perm.ok) {
