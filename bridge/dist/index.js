@@ -8,6 +8,7 @@ import { envelopeToText, failResult } from "./errors.js";
 import { findInPath, resolveGrokBinary } from "./grok-bin.js";
 import { resolvePermission } from "./permission.js";
 import { runGrok } from "./runner.js";
+import { handleGrokImagine, } from "./tools/imagine.js";
 import { handleGrokRun } from "./tools/run.js";
 import { handleSetup } from "./tools/setup.js";
 const config = loadConfig();
@@ -82,6 +83,40 @@ const TOOLS = [
             required: ["prompt"],
         },
     },
+    {
+        name: "grok_imagine",
+        description: "Generate an image via constrained headless Grok (image-only; never full shell inherit). Returns artifact paths when parseable.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                prompt: {
+                    type: "string",
+                    description: "Image description / generation request",
+                },
+                aspect_ratio: {
+                    type: "string",
+                    description: "Aspect ratio passed to the image tool (default auto)",
+                },
+                save_dir: {
+                    type: "string",
+                    description: "Directory for saved images (default: <cwd>/.grokodex/images)",
+                },
+                cwd: {
+                    type: "string",
+                    description: "Working directory for the Grok process",
+                },
+                timeout_ms: {
+                    type: "number",
+                    description: "Kill the process after this many ms (default 600000)",
+                },
+                model: {
+                    type: "string",
+                    description: "Optional Grok model override",
+                },
+            },
+            required: ["prompt"],
+        },
+    },
 ];
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS,
@@ -122,6 +157,17 @@ function parseGrokRunArgs(raw) {
         extra_rules: asString(args.extra_rules),
     };
 }
+function parseGrokImagineArgs(raw) {
+    const args = raw ?? {};
+    return {
+        prompt: asString(args.prompt) ?? "",
+        aspect_ratio: asString(args.aspect_ratio),
+        save_dir: asString(args.save_dir),
+        cwd: asString(args.cwd),
+        timeout_ms: asNumber(args.timeout_ms),
+        model: asString(args.model),
+    };
+}
 function textResult(env) {
     return {
         content: [{ type: "text", text: envelopeToText(env) }],
@@ -146,7 +192,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
         return textResult(env);
     }
-    return textResult(failResult("grok_run", "INVALID_ARGS", `Unknown tool: ${name}`, "Use grok_setup or grok_run (imagine/x_search come in later tasks)"));
+    if (name === "grok_imagine") {
+        const env = await handleGrokImagine(parseGrokImagineArgs(rawArgs), {
+            resolveBin: resolveGrokBinary,
+            run: runGrok,
+            env: process.env,
+            existsSync,
+            whichFn: () => findInPath("grok", process.env, existsSync, join, process.platform === "win32" ? ";" : ":"),
+        });
+        return textResult(env);
+    }
+    return textResult(failResult("grok_run", "INVALID_ARGS", `Unknown tool: ${name}`, "Use grok_setup, grok_run, or grok_imagine (x_search comes in a later task)"));
 });
 async function main() {
     const transport = new StdioServerTransport();
