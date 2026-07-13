@@ -173,4 +173,20 @@ export function resolvePermissionForImagine() {
     };
     return ok(audit, buildRestrictedCliArgs());
 }
+/**
+ * X search permissions: restricted-class + disallowed edit tools (read-only).
+ * Never inherits full shell; search-only constraints enforced in the tool prompt.
+ */
+export function resolvePermissionForXSearch() {
+    const audit = {
+        requested: "restricted",
+        effective: "restricted-x-search",
+        codex_sandbox: null,
+        source: "default",
+        notes: [
+            "X search never inherits full shell; edit/write tools disallowed; search-only via prompt.",
+        ],
+    };
+    return ok(audit, buildReadOnlyCliArgs());
+}
 //# sourceMappingURL=permission.js.map

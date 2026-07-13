@@ -256,3 +256,20 @@ export function resolvePermissionForImagine(): ResolvedPermission {
   };
   return ok(audit, buildRestrictedCliArgs());
 }
+
+/**
+ * X search permissions: restricted-class + disallowed edit tools (read-only).
+ * Never inherits full shell; search-only constraints enforced in the tool prompt.
+ */
+export function resolvePermissionForXSearch(): ResolvedPermission {
+  const audit: PermissionAudit = {
+    requested: "restricted",
+    effective: "restricted-x-search",
+    codex_sandbox: null,
+    source: "default",
+    notes: [
+      "X search never inherits full shell; edit/write tools disallowed; search-only via prompt.",
+    ],
+  };
+  return ok(audit, buildReadOnlyCliArgs());
+}

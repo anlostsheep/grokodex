@@ -17,6 +17,11 @@ import {
 } from "./tools/imagine.js";
 import { handleGrokRun, type GrokRunArgs } from "./tools/run.js";
 import { handleSetup } from "./tools/setup.js";
+import {
+  handleGrokXSearch,
+  type GrokXSearchArgs,
+  type XSearchMode,
+} from "./tools/x-search.js";
 import type {
   CodexApproval,
   CodexSandbox,
@@ -139,6 +144,55 @@ const TOOLS = [
       required: ["prompt"],
     },
   },
+  {
+    name: "grok_x_search",
+    description:
+      "Search X/Twitter via constrained headless Grok (read-only; never full shell inherit). Returns structured results when parseable.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query or semantic question",
+        },
+        mode: {
+          type: "string",
+          enum: ["semantic", "keyword"],
+          description: "Search mode (default semantic)",
+        },
+        limit: {
+          type: "number",
+          description: "Max number of results (default 5)",
+        },
+        from_date: {
+          type: "string",
+          description: "Optional start date (YYYY-MM-DD)",
+        },
+        to_date: {
+          type: "string",
+          description: "Optional end date (YYYY-MM-DD)",
+        },
+        usernames: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of usernames to limit search to",
+        },
+        cwd: {
+          type: "string",
+          description: "Working directory for the Grok process",
+        },
+        timeout_ms: {
+          type: "number",
+          description: "Kill the process after this many ms (default 180000)",
+        },
+        model: {
+          type: "string",
+          description: "Optional Grok model override",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -201,6 +255,33 @@ function parseGrokImagineArgs(
   };
 }
 
+function asXSearchMode(v: unknown): XSearchMode | undefined {
+  return v === "semantic" || v === "keyword" ? v : undefined;
+}
+
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((x): x is string => typeof x === "string");
+  return out.length > 0 ? out : undefined;
+}
+
+function parseGrokXSearchArgs(
+  raw: Record<string, unknown> | undefined,
+): GrokXSearchArgs {
+  const args = raw ?? {};
+  return {
+    query: asString(args.query) ?? "",
+    mode: asXSearchMode(args.mode),
+    limit: asNumber(args.limit),
+    from_date: asString(args.from_date),
+    to_date: asString(args.to_date),
+    usernames: asStringArray(args.usernames),
+    cwd: asString(args.cwd),
+    timeout_ms: asNumber(args.timeout_ms),
+    model: asString(args.model),
+  };
+}
+
 function textResult(env: ToolEnvelope) {
   return {
     content: [{ type: "text" as const, text: envelopeToText(env) }],
@@ -254,12 +335,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return textResult(env);
   }
 
+  if (name === "grok_x_search") {
+    const env = await handleGrokXSearch(parseGrokXSearchArgs(rawArgs), {
+      resolveBin: resolveGrokBinary,
+      run: runGrok,
+      env: process.env,
+      existsSync,
+      whichFn: () =>
+        findInPath(
+          "grok",
+          process.env,
+          existsSync,
+          join,
+          process.platform === "win32" ? ";" : ":",
+        ),
+    });
+    return textResult(env);
+  }
+
   return textResult(
     failResult(
       "grok_run",
       "INVALID_ARGS",
       `Unknown tool: ${name}`,
-      "Use grok_setup, grok_run, or grok_imagine (x_search comes in a later task)",
+      "Use grok_setup, grok_run, grok_imagine, or grok_x_search",
     ),
   );
 });

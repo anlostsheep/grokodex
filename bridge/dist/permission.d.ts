@@ -34,3 +34,8 @@ export declare function resolvePermission(input: PermissionInput): ResolvedPermi
  * Narrow write-to-save_dir is enforced in the imagine tool via extra_rules / prompt.
  */
 export declare function resolvePermissionForImagine(): ResolvedPermission;
+/**
+ * X search permissions: restricted-class + disallowed edit tools (read-only).
+ * Never inherits full shell; search-only constraints enforced in the tool prompt.
+ */
+export declare function resolvePermissionForXSearch(): ResolvedPermission;
