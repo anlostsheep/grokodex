@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Logs & OS
+*.log
+.DS_Store
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Local env / secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# TypeScript incremental (if any outside dist)
+*.tsbuildinfo
+
+# NOTE: bridge/dist is intentionally tracked (prebuilt MCP for zero-compile install).
+# Do NOT add bridge/dist to this file.
