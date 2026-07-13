@@ -62,6 +62,13 @@ git clone <本仓库 URL> ~/developer/project/grok-project
 # 或复制到 ~/.codex/plugins/grokodex
 ```
 
+在**插件根目录**安装 Node 依赖（bridge 运行时需要 `@modelcontextprotocol/sdk`；`node_modules` 不随插件拷贝逻辑保证存在）：
+
+```bash
+cd /path/to/grok-project
+npm install
+```
+
 ### 3.2 登记 Personal marketplace
 
 目标文件：`~/.agents/plugins/marketplace.json`
