@@ -23,7 +23,7 @@ function parsePermission(value: string | undefined): PermissionMode {
 
 /**
  * Load bridge config from environment variables.
- * Defaults: permission=restricted, allow_inherit=true, allow_full_access_inherit=false.
+ * Defaults: permission=restricted, allow_inherit=true, allow_full_access_inherit=true.
  */
 export function loadConfig(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
@@ -33,6 +33,6 @@ export function loadConfig(
     grok_path: grokPath || undefined,
     default_permission: parsePermission(env.GROKODEX_DEFAULT_PERMISSION),
     allow_inherit: parseBool(env.GROKODEX_ALLOW_INHERIT, true),
-    allow_full_access_inherit: parseBool(env.GROKODEX_ALLOW_FULL_ACCESS_INHERIT, false),
+    allow_full_access_inherit: parseBool(env.GROKODEX_ALLOW_FULL_ACCESS_INHERIT, true),
   };
 }

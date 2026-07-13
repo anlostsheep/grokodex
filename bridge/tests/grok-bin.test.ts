@@ -44,11 +44,11 @@ describe("resolveGrokBinary", () => {
 });
 
 describe("loadConfig", () => {
-  it("defaults permission restricted and allow_inherit true", () => {
+  it("defaults permission restricted and allow_inherit / full-access inherit true", () => {
     const c = loadConfig({});
     expect(c.default_permission).toBe("restricted");
     expect(c.allow_inherit).toBe(true);
-    expect(c.allow_full_access_inherit).toBe(false);
+    expect(c.allow_full_access_inherit).toBe(true);
     expect(c.grok_path).toBeUndefined();
   });
 
