@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "grokodex": {
+      "command": "node",
+      "args": ["./bridge/dist/index.js"],
+      "cwd": "."
+    }
+  }
+}
