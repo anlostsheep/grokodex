@@ -13,10 +13,25 @@ function parsePermission(value) {
         return value;
     return "restricted";
 }
+function parsePositiveInt(value, defaultValue) {
+    if (value === undefined || value.trim() === "")
+        return defaultValue;
+    const n = Number(value.trim());
+    if (!Number.isFinite(n) || n < 1)
+        return defaultValue;
+    return Math.floor(n);
+}
+function parseToolsCsv(value, defaultValue) {
+    const t = value?.trim();
+    if (!t)
+        return defaultValue;
+    return t;
+}
 /**
  * Load bridge config from environment variables.
  * Defaults: permission=restricted, allow_inherit=true, allow_full_access_inherit=true,
- * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false.
+ * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false,
+ * narrow x_search turns=5 / imagine=4, timeouts 90s / 120s.
  */
 export function loadConfig(env = process.env) {
     const grokPath = env.GROK_PATH?.trim();
@@ -31,6 +46,13 @@ export function loadConfig(env = process.env) {
         leader_isolate: parseBool(env.GROKODEX_LEADER_ISOLATE, false),
         leader_fallback: parseBool(env.GROKODEX_LEADER_FALLBACK, true),
         leader_ensure: parseBool(env.GROKODEX_LEADER_ENSURE, true),
+        x_search_max_turns: parsePositiveInt(env.GROKODEX_X_SEARCH_MAX_TURNS, 5),
+        imagine_max_turns: parsePositiveInt(env.GROKODEX_IMAGINE_MAX_TURNS, 4),
+        x_search_tools: parseToolsCsv(env.GROKODEX_X_SEARCH_TOOLS, "x_search"),
+        imagine_tools: parseToolsCsv(env.GROKODEX_IMAGINE_TOOLS, "image_gen"),
+        x_search_timeout_ms: parsePositiveInt(env.GROKODEX_X_SEARCH_TIMEOUT_MS, 90_000),
+        imagine_timeout_ms: parsePositiveInt(env.GROKODEX_IMAGINE_TIMEOUT_MS, 120_000),
+        narrow_tools_strict: parseBool(env.GROKODEX_NARROW_TOOLS_STRICT, true),
     };
 }
 //# sourceMappingURL=config.js.map

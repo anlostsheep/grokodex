@@ -15,10 +15,28 @@ export interface GrokodexConfig {
     leader_fallback: boolean;
     /** Spawn leader when socket unhealthy. */
     leader_ensure: boolean;
+    /** grok_x_search --max-turns (default 5). */
+    x_search_max_turns: number;
+    /** grok_imagine --max-turns (default 4). */
+    imagine_max_turns: number;
+    /** grok_x_search --tools CSV (default x_search). */
+    x_search_tools: string;
+    /** grok_imagine --tools CSV (default image_gen). */
+    imagine_tools: string;
+    /** Default timeout for grok_x_search when timeout_ms omitted. */
+    x_search_timeout_ms: number;
+    /** Default timeout for grok_imagine when timeout_ms omitted. */
+    imagine_timeout_ms: number;
+    /**
+     * When true, narrow tools never silently fall back to a wide 30-turn path.
+     * Default true (reserved for future failure handling; short path always on).
+     */
+    narrow_tools_strict: boolean;
 }
 /**
  * Load bridge config from environment variables.
  * Defaults: permission=restricted, allow_inherit=true, allow_full_access_inherit=true,
- * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false.
+ * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false,
+ * narrow x_search turns=5 / imagine=4, timeouts 90s / 120s.
  */
 export declare function loadConfig(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): GrokodexConfig;

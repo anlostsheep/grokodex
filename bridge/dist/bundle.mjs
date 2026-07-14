@@ -15465,6 +15465,17 @@ function parsePermission(value) {
   if (value === "restricted" || value === "inherit") return value;
   return "restricted";
 }
+function parsePositiveInt(value, defaultValue) {
+  if (value === void 0 || value.trim() === "") return defaultValue;
+  const n = Number(value.trim());
+  if (!Number.isFinite(n) || n < 1) return defaultValue;
+  return Math.floor(n);
+}
+function parseToolsCsv(value, defaultValue) {
+  const t = value?.trim();
+  if (!t) return defaultValue;
+  return t;
+}
 function loadConfig(env = process.env) {
   const grokPath = env.GROK_PATH?.trim();
   const leaderSocket = env.GROKODEX_LEADER_SOCKET?.trim();
@@ -15477,7 +15488,14 @@ function loadConfig(env = process.env) {
     leader_socket: leaderSocket || void 0,
     leader_isolate: parseBool(env.GROKODEX_LEADER_ISOLATE, false),
     leader_fallback: parseBool(env.GROKODEX_LEADER_FALLBACK, true),
-    leader_ensure: parseBool(env.GROKODEX_LEADER_ENSURE, true)
+    leader_ensure: parseBool(env.GROKODEX_LEADER_ENSURE, true),
+    x_search_max_turns: parsePositiveInt(env.GROKODEX_X_SEARCH_MAX_TURNS, 5),
+    imagine_max_turns: parsePositiveInt(env.GROKODEX_IMAGINE_MAX_TURNS, 4),
+    x_search_tools: parseToolsCsv(env.GROKODEX_X_SEARCH_TOOLS, "x_search"),
+    imagine_tools: parseToolsCsv(env.GROKODEX_IMAGINE_TOOLS, "image_gen"),
+    x_search_timeout_ms: parsePositiveInt(env.GROKODEX_X_SEARCH_TIMEOUT_MS, 9e4),
+    imagine_timeout_ms: parsePositiveInt(env.GROKODEX_IMAGINE_TIMEOUT_MS, 12e4),
+    narrow_tools_strict: parseBool(env.GROKODEX_NARROW_TOOLS_STRICT, true)
   };
 }
 
@@ -15976,7 +15994,7 @@ async function defaultProbeLeader(socket, exists = existsSync, tryConnect = defa
   }
   return { alive: true, pid: null };
 }
-function parsePositiveInt(raw, fallback) {
+function parsePositiveInt2(raw, fallback) {
   if (raw === void 0 || raw.trim() === "") return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return fallback;
@@ -16099,11 +16117,11 @@ async function prepareLeader(config3, useLeaderOverride, deps = {}) {
     env
   }));
   const sleep = deps.sleep ?? defaultSleep;
-  const ensureTimeoutMs = deps.ensureTimeoutMs ?? deps.ensureWaitMs ?? parsePositiveInt(
+  const ensureTimeoutMs = deps.ensureTimeoutMs ?? deps.ensureWaitMs ?? parsePositiveInt2(
     env.GROKODEX_LEADER_ENSURE_TIMEOUT_MS,
     DEFAULT_ENSURE_TIMEOUT_MS
   );
-  const ensurePollMs = deps.ensurePollMs ?? parsePositiveInt(
+  const ensurePollMs = deps.ensurePollMs ?? parsePositiveInt2(
     env.GROKODEX_LEADER_ENSURE_POLL_MS,
     DEFAULT_ENSURE_POLL_MS
   );
@@ -16194,15 +16212,46 @@ function markLeaderRunFallback(meta2) {
   };
 }
 
+// bridge/src/narrow-cli.ts
+function setFlag(args, flag, value) {
+  const idx = args.indexOf(flag);
+  if (idx >= 0 && idx + 1 < args.length) {
+    args[idx + 1] = value;
+  } else {
+    args.push(flag, value);
+  }
+}
+function parseToolsAllowlist(csv) {
+  return csv.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+function applyNarrowCliArgs(baseCliArgs, opts) {
+  const args = [...baseCliArgs];
+  const turns = Math.max(1, Math.floor(opts.maxTurns));
+  setFlag(args, "--max-turns", String(turns));
+  const tools = opts.toolsCsv.trim() || "x_search";
+  setFlag(args, "--tools", tools);
+  if (opts.disallowAgent !== false) {
+    const idx = args.indexOf("--disallowed-tools");
+    if (idx >= 0 && idx + 1 < args.length) {
+      const parts = parseToolsAllowlist(String(args[idx + 1]));
+      if (!parts.includes("Agent")) parts.push("Agent");
+      args[idx + 1] = parts.join(",");
+    } else {
+      args.push("--disallowed-tools", "Agent");
+    }
+  }
+  return args;
+}
+
 // bridge/src/tools/imagine.ts
-var DEFAULT_TIMEOUT_MS = 6e5;
 var STDERR_TRUNCATE = 2e3;
 var IMAGE_EXT_RE = /\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif)\b/i;
 function buildImaginePrompt(opts) {
   const { prompt, saveDirAbs, aspectRatio } = opts;
   return [
-    "You are running inside Grokodex. ONLY generate an image with the image generation tool.",
+    "You are running inside Grokodex. ONLY generate an image with the image generation tool (image_gen).",
     "Do not edit source code or run unrelated shell commands.",
+    "Complete in as few turns as possible. Prefer a single image_gen call. Do not spawn subagents.",
     `Save the image under: ${saveDirAbs}`,
     `Aspect ratio: ${aspectRatio}`,
     "User request:",
@@ -16418,7 +16467,11 @@ async function handleGrokImagine(args, deps) {
       saveDirAbs,
       aspectRatio
     });
-    const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0 ? args.timeout_ms : DEFAULT_TIMEOUT_MS;
+    const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0 ? args.timeout_ms : deps.config.imagine_timeout_ms;
+    const narrowMeta = {
+      max_turns: deps.config.imagine_max_turns,
+      tools_allowlist: parseToolsAllowlist(deps.config.imagine_tools)
+    };
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, args.use_leader, {
       env,
@@ -16438,7 +16491,11 @@ async function handleGrokImagine(args, deps) {
       baseCliArgs.push("-m", args.model.trim());
     }
     baseCliArgs.push("-p", fullPrompt);
-    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+    const narrowArgs = applyNarrowCliArgs(baseCliArgs, {
+      maxTurns: deps.config.imagine_max_turns,
+      toolsCsv: deps.config.imagine_tools
+    });
+    const cliArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
     const runReq = {
       bin: resolved.path,
       args: cliArgs,
@@ -16452,7 +16509,7 @@ async function handleGrokImagine(args, deps) {
         cli: { use: false, socket: leader.meta.socket },
         meta: markLeaderRunFallback(leader.meta)
       };
-      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      const retryArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
       result = await deps.run({
         ...runReq,
         args: retryArgs
@@ -16462,7 +16519,7 @@ async function handleGrokImagine(args, deps) {
       return failWithPermission(
         "TIMEOUT",
         `grok timed out after ${timeoutMs}ms`,
-        "Increase timeout_ms or simplify the image prompt; default is 600000ms",
+        "Increase timeout_ms or simplify the image prompt; default short-path timeout is 120000ms",
         perm.audit
       );
     }
@@ -16513,7 +16570,8 @@ async function handleGrokImagine(args, deps) {
         model: args.model,
         exit_code: result.code,
         artifact_count: artifacts.length,
-        leader: leader.meta
+        leader: leader.meta,
+        ...narrowMeta
       }
     });
   } catch (err) {
@@ -16545,7 +16603,7 @@ function parseSandboxEnv(env) {
   }
   return { ok: true, sandbox: h ?? c };
 }
-var DEFAULT_TIMEOUT_MS2 = 6e5;
+var DEFAULT_TIMEOUT_MS = 6e5;
 var STDERR_TRUNCATE2 = 2e3;
 function defaultWhich2(env) {
   return () => findInPath(
@@ -16655,7 +16713,7 @@ async function handleGrokRun(args, deps) {
       return failWithPermission2(perm.code, perm.message, perm.hint, perm.audit);
     }
     const cwd = normalized.cwd?.trim() || process.cwd();
-    const timeoutMs = typeof normalized.timeout_ms === "number" && normalized.timeout_ms > 0 ? normalized.timeout_ms : DEFAULT_TIMEOUT_MS2;
+    const timeoutMs = typeof normalized.timeout_ms === "number" && normalized.timeout_ms > 0 ? normalized.timeout_ms : DEFAULT_TIMEOUT_MS;
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, normalized.use_leader, {
       env,
@@ -16975,7 +17033,6 @@ async function handleSetup(args = {}, deps = {}) {
 // bridge/src/tools/x-search.ts
 import { existsSync as existsSync6 } from "node:fs";
 import { join as join6 } from "node:path";
-var DEFAULT_TIMEOUT_MS3 = 18e4;
 var DEFAULT_LIMIT = 5;
 var MAX_LIMIT = 50;
 var STDERR_TRUNCATE3 = 2e3;
@@ -16985,6 +17042,8 @@ function buildXSearchPrompt(opts) {
     "You are running inside Grokodex. ONLY use X/Twitter search-related capabilities.",
     "Do not edit source code, write files, or modify the repository.",
     "Do not run shell commands that change the workspace.",
+    "Complete in as few turns as possible. Do not explore the repo or use web_search.",
+    "Do not spawn subagents. Prefer a single X search tool call then JSON results.",
     "",
     `Search mode: ${mode}`,
     `Return at most ${limit} results.`
@@ -17199,7 +17258,12 @@ async function handleGrokXSearch(args, deps) {
       usernames
     });
     const cwd = args.cwd?.trim() || getCwd();
-    const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0 ? args.timeout_ms : DEFAULT_TIMEOUT_MS3;
+    const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0 ? args.timeout_ms : deps.config.x_search_timeout_ms;
+    const toolsAllowlist = parseToolsAllowlist(deps.config.x_search_tools);
+    const narrowMeta = {
+      max_turns: deps.config.x_search_max_turns,
+      tools_allowlist: toolsAllowlist
+    };
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, args.use_leader, {
       env,
@@ -17219,7 +17283,11 @@ async function handleGrokXSearch(args, deps) {
       baseCliArgs.push("-m", args.model.trim());
     }
     baseCliArgs.push("-p", fullPrompt);
-    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+    const narrowArgs = applyNarrowCliArgs(baseCliArgs, {
+      maxTurns: deps.config.x_search_max_turns,
+      toolsCsv: deps.config.x_search_tools
+    });
+    const cliArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
     const runReq = {
       bin: resolved.path,
       args: cliArgs,
@@ -17233,7 +17301,7 @@ async function handleGrokXSearch(args, deps) {
         cli: { use: false, socket: leader.meta.socket },
         meta: markLeaderRunFallback(leader.meta)
       };
-      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      const retryArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
       result = await deps.run({
         ...runReq,
         args: retryArgs
@@ -17243,7 +17311,7 @@ async function handleGrokXSearch(args, deps) {
       return failWithPermission3(
         "TIMEOUT",
         `grok timed out after ${timeoutMs}ms`,
-        "Increase timeout_ms or narrow the query; default is 180000ms",
+        "Increase timeout_ms or narrow the query; default short-path timeout is 90000ms",
         perm.audit
       );
     }
@@ -17284,7 +17352,8 @@ async function handleGrokXSearch(args, deps) {
         usernames,
         model: args.model,
         exit_code: result.code,
-        leader: leader.meta
+        leader: leader.meta,
+        ...narrowMeta
       }
     });
   } catch (err) {
