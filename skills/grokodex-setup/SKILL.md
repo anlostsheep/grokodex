@@ -11,13 +11,13 @@ Check that the **local Grok CLI** is installed and logged in so other Grokodex t
 
 - First time using Grokodex in a session or machine
 - Any tool returns `GROK_NOT_FOUND` or `GROK_NOT_LOGGED_IN`
-- User asks to install / login / verify Grok for Codex
+- User asks to install / login / verify Grok for Grokodex (Codex, Claude Code, etc.)
 - Before heavy `grok_run` / `grok_imagine` / `grok_x_search` work if setup looks broken
 
 ## Tool preference
 
-1. **Always call the MCP tool `grok_setup` first** (Grokodex MCP server).
-2. Do **not** shell out to `grok` for diagnostics when `grok_setup` is available.
+1. **Always call the MCP tool `grok_setup` first** (logical name; Claude may show an `mcp__…__grok_setup` prefix — use `/mcp` list).
+2. Do **not** use a terminal/shell tool to run `grok` for diagnostics when `grok_setup` is available.
 3. **Exception:** after `grok_setup` fails or reports missing binary / bad auth, you may guide the user to run **install** and **`grok login`** in their own terminal (see below). That is the only case where shell/`grok` is appropriate, and only as user-facing install guidance—not as a bypass for other tools.
 
 ## How to call
@@ -92,7 +92,8 @@ Confirm readiness briefly (path + version + auth). Point the user to:
 - `grok_setup` reports whether a local Grok **leader** socket is alive and
   whether `grokodex_use_leader` is enabled (default **on**).
 - To disable: set `GROKODEX_USE_LEADER=0` on the MCP server process (or reinstall
-  with `./scripts/install-codex-plugin.sh --no-leader`).
+  with host install script `--no-leader`, e.g. `./scripts/install-codex-plugin.sh --no-leader`
+  or `./scripts/install-claude-plugin.sh --no-leader`).
 - Optional: `ensure: true` on `grok_setup` may start `grok agent leader`
   (side effect). Default setup is read-only unless `ensure=true`.
 - Do **not** shell out to manage leader as a bypass of MCP tools for tasks.

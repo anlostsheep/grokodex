@@ -16,9 +16,9 @@ Generate an image with a **constrained** headless Grok run (image-only; never fu
 
 ## Tool preference
 
-1. Call MCP tool **`grok_imagine`**.
-2. Do **not** shell out to `grok` for image generation.
-3. Permission is fixed to restricted-class inside the bridge; **do not** pass inherit / `codex_sandbox`.
+1. Call MCP tool **`grok_imagine`** (logical name; Claude may show an `mcp__…` prefix).
+2. Do **not** use a terminal/shell tool to run `grok` for image generation.
+3. Permission is fixed to restricted-class inside the bridge; **do not** pass inherit / `host_sandbox` / `codex_sandbox`.
 
 ## How to fill arguments
 

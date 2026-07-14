@@ -1,25 +1,31 @@
 # Grokodex
 
-在 **OpenAI Codex App** 里使用本机 **Grok** agent 与独有工具（委托、Imagine 生图、X 搜索）。
+在 **Codex** / **Claude Code**（及其他 MCP 宿主）里使用本机 **Grok** agent 与独有工具（委托、Imagine 生图、X 搜索）。
 
-- 插件 id：`grokodex`
-- 形态：完整 Codex 插件（skills + MCP bridge），经 **Personal marketplace** 安装
+- 插件 id：`grokodex`（早期为 Codex 集成命名；现为多宿主 bridge，id 暂不改）
+- 形态：skills + MCP bridge；经 **本地 Personal marketplace** 安装
 - 默认权限：`restricted`（工作区可写，高危 shell 硬拒绝）；可选显式 `inherit`
 
 ---
 
 ## 1. Grokodex 是什么
 
-Codex 是编排者，Grok 是 worker：
+宿主是编排者，Grok 是 worker：
 
 ```
-Codex App / CLI
-  → 加载 plugin skills
-  → stdio 拉起 grokodex-bridge（MCP）
-  → 本机 `grok` CLI + xAI 凭证
+Codex App/CLI  ──┐
+                 ├── plugin skills
+Claude Code  ───┼── stdio MCP → grokodex-bridge
+                 └── 本机 `grok` CLI + xAI 凭证
 ```
 
-能力走 **MCP tools**，流程走 **skills**。不要用 `shell` 直接跑 `grok` 旁路（setup 引导登录除外）。
+能力走 **MCP tools**，流程走 **skills**。不要用 shell 直接跑 `grok` 旁路（setup 引导登录除外）。
+
+源码树与安装树分离：
+
+- 共享：`bridge/`、`skills/`
+- 宿主包装：`hosts/codex/`、`hosts/claude/`
+- 安装脚本把白名单内容组装到宿主插件目录
 
 ---
 
@@ -27,10 +33,10 @@ Codex App / CLI
 
 | 依赖 | 说明 |
 |------|------|
-| **Node.js 18.18+** | 运行预构建 bridge（`node ./bridge/dist/index.js`） |
+| **Node.js 18.18+** | 运行预构建 bridge（`bridge/dist/bundle.mjs`） |
 | **本机 Grok CLI** | `grok` 在 PATH 上，或设置 `GROK_PATH` |
 | **xAI 登录** | 本机已执行 `grok login`，凭证健康 |
-| **Codex App** | 支持 Personal marketplace / 插件安装的版本 |
+| **Codex 和/或 Claude Code** | 支持插件 / marketplace 的本机版本 |
 
 安装 Grok CLI（macOS / Linux / WSL）：
 
@@ -49,113 +55,80 @@ irm https://x.ai/cli/install.ps1 | iex
 
 ---
 
-## 3. 安装到 Codex App（Personal marketplace）
+## 3. 安装到 Codex（Personal marketplace）
 
 CLI 与 App 共用 marketplace 与 `~/.codex/config.toml`。
 
-### 3.1 推荐：一键脚本（开发机）
-
-在本仓库根目录：
+### 3.1 一键脚本
 
 ```bash
-# 首次或改代码后：构建 bridge → 同步到 Codex 插件目录 → marketplace → plugin add
-chmod +x scripts/install-codex-plugin.sh   # 仅首次需要
+chmod +x scripts/install-codex-plugin.sh   # 仅首次
 ./scripts/install-codex-plugin.sh
 ```
 
 脚本会：
 
 1. `npm run build`（可用 `--no-build` 跳过）
-2. 把仓库同步到：
-   - `~/.codex/plugins/grokodex`（主安装路径）
-   - `~/.codex/plugins/cache/personal/grokodex/0.1.0`（Codex 缓存副本）
-3. 写入 `~/.agents/plugins/marketplace.json`（Personal 源指向上述路径）
-4. 生成 `.mcp.json`：用**绝对路径**的 `node` 启动 `bridge/dist/bundle.mjs`（避免 App 找不到 fnm 的 node）
-5. 默认 MCP env：`GROKODEX_USE_LEADER=1`（暖 backend）；可用 `--no-leader` 关掉
-6. 若 PATH 上有 `codex`：执行 `codex plugin add grokodex@personal`
+2. **白名单组装** `bridge/dist` + `skills` + `hosts/codex` + `assets` 到：
+   - `~/.codex/plugins/grokodex`
+   - `~/.codex/plugins/cache/personal/grokodex/0.1.0`
+3. 写入 `~/.agents/plugins/marketplace.json`
+4. 生成 `.mcp.json`：绝对路径 `node` + `./bridge/dist/bundle.mjs`
+5. 默认 `GROKODEX_USE_LEADER=1`（可用 `--no-leader`）
+6. 若有 `codex` CLI：`codex plugin add grokodex@personal`
 
 然后：
 
 1. **完全退出并重启 Codex App**（Cmd+Q）
 2. **设置 → 插件 → Personal**：确认 **Grokodex** 为开
-3. **新开会话**（旧会话可能仍挂旧 bundle）
+3. **新开会话**
+4. `grok_setup` → `grok_run`
 
-关闭 leader 重装示例：
-
-```bash
-./scripts/install-codex-plugin.sh --no-leader
-```
-
-### 3.2 已安装时只刷新
-
-```bash
-./scripts/install-codex-plugin.sh          # 改代码后
-# 或
-./scripts/install-codex-plugin.sh --no-build   # 仅重同步已有 dist
-```
-
-`codex plugin list` 应类似：
-
-```text
-grokodex@personal  installed, enabled
-```
-
-### 3.3 手工安装（不跑脚本时）
-
-1. `npm run build`
-2. 将仓库内容复制到 `~/.codex/plugins/grokodex`（至少包含 `.codex-plugin/`、`skills/`、`bridge/dist/bundle.mjs`、`assets/`、`.mcp.json`）
-3. 配置 Personal marketplace：`~/.agents/plugins/marketplace.json`（`source.path` 相对 **`$HOME`**）：
-
-```json
-{
-  "name": "personal",
-  "interface": { "displayName": "Personal" },
-  "plugins": [
-    {
-      "name": "grokodex",
-      "source": {
-        "source": "local",
-        "path": "./.codex/plugins/grokodex"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Developer Tools"
-    }
-  ]
-}
-```
-
-4. `codex plugin add grokodex@personal`  
-   模板见 [`marketplace.example.json`](./marketplace.example.json)。
-
-**源码目录 ≠ 运行目录：** Codex 加载的是 `~/.codex/plugins/...` 下的副本。改仓库后必须重新 build + 同步（跑脚本），否则 App 仍用旧 bundle。
-
-### 3.4 快速自检
-
-新会话中：
-
-- skills：`grokodex-setup` / `grokodex-run` / `grokodex-imagine` / `grokodex-x-search`
-- 先 `grok_setup`（`auth_ok`；可看 `meta.leader`）
-- 再试 `grok_run`（默认会尝试 leader；失败则 one-shot fallback）
+关闭 leader：`./scripts/install-codex-plugin.sh --no-leader`
 
 ---
 
-## 4. 工具与 skills
+## 4. 安装到 Claude Code（本地 marketplace）
+
+```bash
+chmod +x scripts/install-claude-plugin.sh   # 仅首次
+./scripts/install-claude-plugin.sh
+```
+
+脚本会：
+
+1. `npm run build`（可用 `--no-build`）
+2. 组装到 `~/.claude/plugins/marketplaces/grokodex-local/plugins/grokodex`
+3. 写入 marketplace `grokodex-local`（`.claude-plugin/marketplace.json`）
+4. `.mcp.json` 使用 **`${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs`**
+5. `claude plugin marketplace add` + `claude plugin install grokodex@grokodex-local -s user`
+
+然后：
+
+1. **重启 Claude Code / 新开会话**
+2. `/mcp` 确认四工具可见（名称可能带 `mcp__…` 前缀）
+3. 调用 `grok_setup`，再 `grok_run`
+
+关闭 leader：`./scripts/install-claude-plugin.sh --no-leader`
+
+改仓库后请重新跑对应安装脚本；**源码目录 ≠ 运行中的插件副本**。
+
+---
+
+## 5. 工具与 skills
 
 ### MCP 工具
 
 | 工具 | 作用 | 要点 |
 |------|------|------|
-| `grok_setup` | 诊断本机 grok 路径、版本、登录 | 无业务副作用 |
+| `grok_setup` | 诊断本机 grok 路径、版本、登录 | 无业务副作用（`ensure=true` 可拉起 leader） |
 | `grok_run` | 通用 headless 委托 | 默认 `restricted`；可显式 `inherit` |
 | `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images` |
 | `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword` |
 
 统一返回 JSON 包络：`ok: true|false`；失败带稳定 `error.code` 与可选 `hint`。
 
-### Skills（教 Codex 何时调哪个 tool）
+### Skills
 
 | Skill | 主工具 | 触发场景 |
 |-------|--------|----------|
@@ -166,33 +139,34 @@ grokodex@personal  installed, enabled
 
 ---
 
-## 5. 权限模型
+## 6. 权限模型
 
 ### 两档（`grok_run`）
 
 | 档位 | 何时用 | 行为摘要 |
 |------|--------|----------|
 | **`restricted`（默认）** | 日常委托 | 工作区可写；高危 shell 模式硬拒绝；**不** always-approve |
-| **`inherit`（显式）** | 用户明确要求与 Codex 同权 / Full-Access | 按 Codex sandbox 映射能力；**禁止**因「任务难」自动抬权 |
+| **`inherit`（显式）** | 用户明确要求与宿主同权 / Full-Access | 按宿主能力档映射；**禁止**因「任务难」自动抬权 |
 
-`grok_imagine` / `grok_x_search` **永不**继承完整 shell：只读 + 仅写产物目录（生图）。
+`grok_imagine` / `grok_x_search` **永不**继承完整 shell。
 
-### `inherit` 解析顺序
+### `inherit` 与 `host_sandbox`
 
-MCP 子进程通常拿不到当前 Codex 会话 live sandbox：
+MCP 子进程通常拿不到宿主会话 live 权限：
 
-1. 调用方传入的 `codex_sandbox`（及可选 `codex_approval`）— **优先**
-2. 环境变量 `GROKODEX_CODEX_SANDBOX`
-3. 静态读取 `~/.codex/config.toml`（可能 ≠ 当前会话）
+1. 调用方 **`host_sandbox`**（规范名）或兼容别名 **`codex_sandbox`** — 优先  
+   - 两者同时传入且**不一致** → `INVALID_ARGS`
+2. 环境变量 `GROKODEX_HOST_SANDBOX`（规范）或 `GROKODEX_CODEX_SANDBOX`（别名）；同层冲突 → `INVALID_ARGS`
+3. 静态读取 `~/.codex/config.toml`（仅 Codex 路径可能有用；可能 ≠ 当前会话）
 4. 仍未知 → **`INHERIT_UNAVAILABLE`**（禁止静默升为 full）
 
-| Codex sandbox | 生效近似 |
-|---------------|----------|
+| `host_sandbox` | 生效近似 |
+|----------------|----------|
 | `read-only` | 禁止 edit/write 类工具 |
 | `workspace-write` | 与 restricted 同级 |
-| `danger-full-access` | 抬权 + always-approve；仍保留绝对禁令（如 `rm -rf /`、`sudo`、`mkfs`） |
+| `danger-full-access` | 抬权 + always-approve；仍保留绝对禁令 |
 
-每次响应带 `permission` 审计字段：`requested`、`effective`、`codex_sandbox`、`source`、`notes`。
+每次响应 `permission` 审计：`requested`、`effective`、**`host_sandbox`**、镜像字段 `codex_sandbox`、`source`、`notes`。
 
 ### 可选环境变量
 
@@ -202,13 +176,12 @@ MCP 子进程通常拿不到当前 Codex 会话 live sandbox：
 | `GROKODEX_DEFAULT_PERMISSION` | 默认权限档（默认 `restricted`） |
 | `GROKODEX_ALLOW_INHERIT` | 是否允许 inherit（默认允许） |
 | `GROKODEX_ALLOW_FULL_ACCESS_INHERIT` | 是否允许 full 级 inherit |
-| `GROKODEX_ABSOLUTE_DENY` | 额外 deny 规则 |
-
-不配置任何变量也应能按默认工作。
+| `GROKODEX_HOST_SANDBOX` | inherit 时宿主能力档（规范） |
+| `GROKODEX_CODEX_SANDBOX` | 上者的兼容别名 |
 
 ### Leader-backed headless（默认开启）
 
-Headless 调用默认走本机 Grok **leader** 暖 backend（复用已加载的 MCP/skills）。无 leader 时会 ensure；失败则 **one-shot fallback**（`FALLBACK` 默认开）。
+Headless 调用默认走本机 Grok **leader** 暖 backend。失败则 **one-shot fallback**。
 
 | Env | Default | Meaning |
 |-----|---------|---------|
@@ -217,54 +190,14 @@ Headless 调用默认走本机 Grok **leader** 暖 backend（复用已加载的 
 | `GROKODEX_LEADER_ISOLATE` | `false` | 使用专用 `grokodex-leader.sock` |
 | `GROKODEX_LEADER_FALLBACK` | `true` | leader 失败时退回 one-shot |
 | `GROKODEX_LEADER_ENSURE` | `true` | socket 不可用时尝试 spawn leader |
-| `GROKODEX_LEADER_ENSURE_TIMEOUT_MS` | `8000` | ensure 后等待就绪的最长时间 |
-| `GROKODEX_LEADER_ENSURE_POLL_MS` | `100` | 就绪轮询间隔 |
 
-这**不会**自动 `--resume` 上一次对话（无会话连续）。排障看返回里的 `meta.leader`。
+排障看 `meta.leader`。Codex 与 Claude 可共享同一本机 leader（预期行为）。
 
 > **警告：** Full-Access / `danger-full-access` inherit 费用与破坏力都更高。仅在用户明确要求时使用。
 
 ---
 
-## 6. 限制（非目标）
-
-Grokodex **不会**：
-
-- 把 Codex 默认模型换成 Grok
-- 在 **Codex Cloud** / 无本机 `grok` 与 xAI 登录的环境中工作
-- 与 Grok TUI 级 ACP 嵌套 UI 完全对齐
-- 把 Grok 每个内置工具 1:1 原生绑定（其余能力先走 `grok_run`）
-- 提交到 OpenAI 公共插件目录（MVP）
-- 静默自动提权
-
-权限映射是 **能力等价**，不是与 Codex 共享同一 OS sandbox 令牌。Imagine / X 首期通过约束 headless prompt 实现，效果取决于本机 Grok 是否遵守窄任务。
-
----
-
-## 7. 排错（错误码）
-
-| 错误码 | 含义 | 处理建议 |
-|--------|------|----------|
-| `GROK_NOT_FOUND` | PATH / `GROK_PATH` 找不到 `grok` | 安装 CLI；检查 PATH；设 `GROK_PATH`；用 skill `grokodex-setup` |
-| `GROK_NOT_LOGGED_IN` | 未登录或鉴权不健康 | 本机执行 `grok login`，再 `grok_setup` |
-| `TIMEOUT` | 子进程超时 | 缩小任务 / 提高 `timeout_ms` |
-| `PERMISSION_DENIED` | 配置禁止 inherit 或 full inherit | 改 env 配置，或改用 `restricted` |
-| `INHERIT_UNAVAILABLE` | 无法判定 Codex sandbox | 显式传 `codex_sandbox`，或退回 `restricted` |
-| `INVALID_ARGS` | 参数缺失/非法 | 检查必填 `prompt` / `query` 等 |
-| `GROK_EXIT_NONZERO` | grok 非零退出 | 看 `message` / stderr 摘要；调整 prompt 或权限 |
-
-### 常见安装问题
-
-| 现象 | 排查 |
-|------|------|
-| Plugins 里看不到 Grokodex | marketplace 路径是否相对 `~/.agents/plugins/` 且 `./` 开头；JSON 是否合法；是否重启 App |
-| 装了但新会话无 skills | 是否 **Enable**；是否 **新会话**；`.codex-plugin/plugin.json` 的 `skills` 路径 |
-| MCP 起不来 | `node -v` ≥ 18.18；`bridge/dist/index.js` 是否存在；本机 `node ./bridge/dist/index.js` 是否能挂起等 stdin |
-| 工具全失败 | 先 `grok_setup`；确认非 Cloud 纯远端环境 |
-
----
-
-## 8. 开发
+## 7. 开发
 
 ```bash
 npm i
@@ -272,21 +205,18 @@ npm test
 npm run build
 ```
 
-- 源码：`bridge/src/`
-- 预构建输出：`bridge/dist/`（**提交进仓库**，安装零编译）
-- MCP 入口：`node bridge/dist/index.js`（stdio MCP；无参数时会等待 stdin）
-- 测试：`vitest`（无本机凭证时 unit/mock 应全绿）
-
-可选类型检查：
-
-```bash
-npm run typecheck
-```
-
-修改 TypeScript 后务必 `npm run build` 并提交更新后的 `bridge/dist/**`。
+手工验收清单：`docs/superpowers/plans/grokodex-claude-acceptance-checklist.md`  
+设计：`docs/superpowers/specs/2026-07-14-grokodex-claude-code-plugin-design.md`
 
 ---
 
-## License
+## 8. 限制（非目标）
 
-MIT — 见 [LICENSE](./LICENSE)。
+Grokodex **不会**：
+
+- 把宿主默认模型换成 Grok
+- 在无本机 `grok` 与 xAI 登录的环境中工作（含多数 Cloud）
+- 与 Grok TUI 级 ACP 嵌套 UI 完全对齐
+- 把 Grok 每个内置工具 1:1 原生绑定（其余能力先走 `grok_run`）
+- 本轮不提交公开 Claude / OpenAI 插件目录
+- 静默自动提权

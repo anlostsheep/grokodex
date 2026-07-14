@@ -8,6 +8,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOME_DIR="${HOME:?HOME not set}"
+VERSION="0.1.0"
+PLUGIN_SRC_NAME="grokodex"
 NODE_BIN="$(command -v node || true)"
 if [[ -z "$NODE_BIN" ]]; then
   echo "error: node not found on PATH (need Node.js 18.18+)" >&2
@@ -31,17 +33,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PLUGIN_SRC_NAME="grokodex"
 MARKETPLACE_JSON="${HOME_DIR}/.agents/plugins/marketplace.json"
 INSTALL_ROOTS=(
   "${HOME_DIR}/.codex/plugins/${PLUGIN_SRC_NAME}"
-  "${HOME_DIR}/.codex/plugins/cache/personal/${PLUGIN_SRC_NAME}/0.1.0"
+  "${HOME_DIR}/.codex/plugins/cache/personal/${PLUGIN_SRC_NAME}/${VERSION}"
   "${HOME_DIR}/.codex/marketplaces/personal/plugins/${PLUGIN_SRC_NAME}"
 )
 
 echo "==> repo: $ROOT"
 echo "==> node: $NODE_BIN"
 echo "==> GROKODEX_USE_LEADER default for MCP env: $USE_LEADER"
+
+if [[ ! -d "${ROOT}/hosts/codex/.codex-plugin" ]]; then
+  echo "error: missing hosts/codex/.codex-plugin — repo layout incomplete" >&2
+  exit 1
+fi
 
 if [[ "$DO_BUILD" -eq 1 ]]; then
   echo "==> npm run build"
@@ -76,23 +82,27 @@ EOF
 
 sync_one() {
   local dest="$1"
-  mkdir -p "$dest"
+  mkdir -p "$dest/bridge/dist" "$dest/skills" "$dest/assets" "$dest/.codex-plugin"
+
   rsync -a --delete \
-    --exclude node_modules \
-    --exclude .git \
-    --exclude .codegraph \
-    --exclude .worktrees \
-    --exclude coverage \
-    --exclude .superpowers \
-    --exclude test \
-    --exclude '.grokodex*' \
-    --exclude '.grokodex-itest*' \
-    "${ROOT}/" "${dest}/"
+    "${ROOT}/bridge/dist/" "${dest}/bridge/dist/"
+  rsync -a --delete \
+    "${ROOT}/skills/" "${dest}/skills/"
+  if [[ -d "${ROOT}/assets" ]]; then
+    rsync -a --delete \
+      "${ROOT}/assets/" "${dest}/assets/"
+  fi
+  rsync -a --delete \
+    "${ROOT}/hosts/codex/.codex-plugin/" "${dest}/.codex-plugin/"
+
+  [[ -f "${ROOT}/LICENSE" ]] && cp "${ROOT}/LICENSE" "${dest}/LICENSE"
+  [[ -f "${ROOT}/README.md" ]] && cp "${ROOT}/README.md" "${dest}/README.md"
+
   write_mcp_json "$dest"
   echo "    synced $dest"
 }
 
-echo "==> sync plugin trees"
+echo "==> sync plugin trees (whitelist from hosts/codex + bridge + skills)"
 for dest in "${INSTALL_ROOTS[@]}"; do
   sync_one "$dest"
 done

@@ -1,0 +1,11 @@
+{
+  "grokodex": {
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs"],
+    "env": {
+      "GROKODEX_USE_LEADER": "1",
+      "GROKODEX_LEADER_FALLBACK": "1",
+      "GROKODEX_LEADER_ENSURE": "1"
+    }
+  }
+}

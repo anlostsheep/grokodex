@@ -17,9 +17,9 @@ Search **X (Twitter)** through a constrained headless Grok task (read-only; no r
 
 ## Tool preference
 
-1. Call MCP tool **`grok_x_search`**.
-2. Do **not** shell out to `grok` for X search.
-3. Do **not** pass inherit / `codex_sandbox` (tool always runs restricted-x-search).
+1. Call MCP tool **`grok_x_search`** (logical name; Claude may show an `mcp__…` prefix).
+2. Do **not** use a terminal/shell tool to run `grok` for X search.
+3. Do **not** pass inherit / `host_sandbox` / `codex_sandbox` (tool always runs restricted-x-search).
 
 ## How to fill arguments
 
