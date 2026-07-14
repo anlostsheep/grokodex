@@ -28,3 +28,9 @@ coverage/
 
 # Local agent session scratch (not part of the product)
 .superpowers/
+
+# Git worktrees (isolated feature workspaces)
+.worktrees/
+
+# Local CodeGraph index
+.codegraph/
