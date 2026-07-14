@@ -224,17 +224,36 @@ describe("handleGrokImagine", () => {
     const runReq = deps.run.mock.calls[0]![0];
     expect(runReq.bin).toBe("/opt/grok");
     expect(runReq.cwd).toBe("/tmp/work");
+    expect(runReq.timeoutMs).toBe(120_000);
     expect(runReq.args).toContain("--output-format");
     expect(runReq.args).toContain("--deny");
     expect(runReq.args).not.toContain("--always-approve");
+    expect(runReq.args[runReq.args.indexOf("--max-turns") + 1]).toBe("4");
+    expect(runReq.args[runReq.args.indexOf("--tools") + 1]).toBe("image_gen");
+    const dis = String(
+      runReq.args[runReq.args.indexOf("--disallowed-tools") + 1],
+    );
+    expect(dis.split(",").map((s) => s.trim())).toEqual(
+      expect.arrayContaining(["Agent"]),
+    );
 
     const pIdx = runReq.args.indexOf("-p");
     expect(pIdx).toBeGreaterThanOrEqual(0);
     const fullPrompt = runReq.args[pIdx + 1] as string;
     expect(fullPrompt).toContain("ONLY generate an image");
+    expect(fullPrompt).toMatch(/few turns/i);
     expect(fullPrompt).toContain("Save the image under: /tmp/work/.grokodex/images");
     expect(fullPrompt).toContain("Aspect ratio: auto");
     expect(fullPrompt).toContain("sunset over mountains");
+  });
+
+  it("meta includes max_turns and tools_allowlist", async () => {
+    const deps = mockDeps();
+    const env = await handleGrokImagine({ prompt: "cat" }, deps);
+    expect(env.ok).toBe(true);
+    if (!env.ok) return;
+    expect(env.meta?.max_turns).toBe(4);
+    expect(env.meta?.tools_allowlist).toEqual(["image_gen"]);
   });
 
   it("uses custom save_dir and aspect_ratio in the prompt", async () => {

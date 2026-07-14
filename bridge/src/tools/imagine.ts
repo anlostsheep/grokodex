@@ -14,6 +14,10 @@ import {
   shouldFallbackAfterLeaderRun,
 } from "../leader.js";
 import {
+  applyNarrowCliArgs,
+  parseToolsAllowlist,
+} from "../narrow-cli.js";
+import {
   resolvePermissionForImagine,
   type ResolvedPermission,
 } from "../permission.js";
@@ -51,7 +55,6 @@ export interface GrokImagineDeps {
   prepareLeader?: typeof prepareLeader;
 }
 
-const DEFAULT_TIMEOUT_MS = 600_000;
 const STDERR_TRUNCATE = 2000;
 
 /** Image-like path suffixes used when harvesting artifacts from model text. */
@@ -68,8 +71,9 @@ export function buildImaginePrompt(opts: {
 }): string {
   const { prompt, saveDirAbs, aspectRatio } = opts;
   return [
-    "You are running inside Grokodex. ONLY generate an image with the image generation tool.",
+    "You are running inside Grokodex. ONLY generate an image with the image generation tool (image_gen).",
     "Do not edit source code or run unrelated shell commands.",
+    "Complete in as few turns as possible. Prefer a single image_gen call. Do not spawn subagents.",
     `Save the image under: ${saveDirAbs}`,
     `Aspect ratio: ${aspectRatio}`,
     "User request:",
@@ -406,7 +410,12 @@ export async function handleGrokImagine(
     const timeoutMs =
       typeof args.timeout_ms === "number" && args.timeout_ms > 0
         ? args.timeout_ms
-        : DEFAULT_TIMEOUT_MS;
+        : deps.config.imagine_timeout_ms;
+
+    const narrowMeta = {
+      max_turns: deps.config.imagine_max_turns,
+      tools_allowlist: parseToolsAllowlist(deps.config.imagine_tools),
+    };
 
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, args.use_leader, {
@@ -429,7 +438,11 @@ export async function handleGrokImagine(
     }
     baseCliArgs.push("-p", fullPrompt);
 
-    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+    const narrowArgs = applyNarrowCliArgs(baseCliArgs, {
+      maxTurns: deps.config.imagine_max_turns,
+      toolsCsv: deps.config.imagine_tools,
+    });
+    const cliArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
     const runReq: RunGrokRequest = {
       bin: resolved.path,
       args: cliArgs,
@@ -450,7 +463,7 @@ export async function handleGrokImagine(
         cli: { use: false, socket: leader.meta.socket },
         meta: markLeaderRunFallback(leader.meta),
       };
-      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      const retryArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
       result = await deps.run({
         ...runReq,
         args: retryArgs,
@@ -461,7 +474,7 @@ export async function handleGrokImagine(
       return failWithPermission(
         "TIMEOUT",
         `grok timed out after ${timeoutMs}ms`,
-        "Increase timeout_ms or simplify the image prompt; default is 600000ms",
+        "Increase timeout_ms or simplify the image prompt; default short-path timeout is 120000ms",
         perm.audit,
       );
     }
@@ -524,6 +537,7 @@ export async function handleGrokImagine(
         exit_code: result.code,
         artifact_count: artifacts.length,
         leader: leader.meta,
+        ...narrowMeta,
       },
     });
   } catch (err) {
