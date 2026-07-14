@@ -34,3 +34,13 @@ export type ToolEnvelope = {
     };
     permission?: PermissionAudit;
 };
+export type LeaderMode = "shared" | "isolated" | "off";
+export interface LeaderMeta {
+    requested: boolean;
+    used: boolean;
+    mode: LeaderMode;
+    socket: string | null;
+    ensured: boolean;
+    fallback: boolean;
+    fallback_reason: string | null;
+}

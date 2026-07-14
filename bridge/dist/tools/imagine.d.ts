@@ -1,4 +1,6 @@
+import type { GrokodexConfig } from "../config.js";
 import { resolveGrokBinary, type WhichFn } from "../grok-bin.js";
+import { prepareLeader } from "../leader.js";
 import { resolvePermissionForImagine } from "../permission.js";
 import { runGrok } from "../runner.js";
 import type { Artifact, ToolEnvelope } from "../types.js";
@@ -10,17 +12,21 @@ export interface GrokImagineArgs {
     cwd?: string;
     timeout_ms?: number;
     model?: string;
+    /** Per-call override for GROKODEX_USE_LEADER. */
+    use_leader?: boolean;
 }
 export interface GrokImagineDeps {
     resolveBin: typeof resolveGrokBinary;
     /** Defaults to resolvePermissionForImagine; injectable for tests. */
     resolvePermImagine?: typeof resolvePermissionForImagine;
     run: typeof runGrok;
+    config: GrokodexConfig;
     env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
     existsSync?: (p: string) => boolean;
     whichFn?: WhichFn;
     /** Injectable process.cwd */
     getCwd?: () => string;
+    prepareLeader?: typeof prepareLeader;
 }
 /**
  * Constrained headless prompt: image generation only, never full shell inherit.

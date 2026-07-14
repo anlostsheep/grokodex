@@ -1,4 +1,6 @@
+import type { GrokodexConfig } from "../config.js";
 import { resolveGrokBinary, type WhichFn } from "../grok-bin.js";
+import { prepareLeader } from "../leader.js";
 import { resolvePermissionForXSearch } from "../permission.js";
 import { runGrok } from "../runner.js";
 import type { ToolEnvelope } from "../types.js";
@@ -19,17 +21,21 @@ export interface GrokXSearchArgs {
     cwd?: string;
     timeout_ms?: number;
     model?: string;
+    /** Per-call override for GROKODEX_USE_LEADER. */
+    use_leader?: boolean;
 }
 export interface GrokXSearchDeps {
     resolveBin: typeof resolveGrokBinary;
     /** Defaults to resolvePermissionForXSearch; injectable for tests. */
     resolvePermXSearch?: typeof resolvePermissionForXSearch;
     run: typeof runGrok;
+    config: GrokodexConfig;
     env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
     existsSync?: (p: string) => boolean;
     whichFn?: WhichFn;
     /** Injectable process.cwd */
     getCwd?: () => string;
+    prepareLeader?: typeof prepareLeader;
 }
 /**
  * Constrained headless prompt: X/Twitter search only, no repo edits.

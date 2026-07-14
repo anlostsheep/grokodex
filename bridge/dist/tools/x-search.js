@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { failResult, okResult } from "../errors.js";
 import { findInPath, } from "../grok-bin.js";
+import { applyLeaderCliFlags, markLeaderRunFallback, prepareLeader, shouldFallbackAfterLeaderRun, } from "../leader.js";
 import { resolvePermissionForXSearch, } from "../permission.js";
 import { parseGrokJsonOutput, } from "../runner.js";
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -251,11 +252,21 @@ export async function handleGrokXSearch(args, deps) {
         const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0
             ? args.timeout_ms
             : DEFAULT_TIMEOUT_MS;
-        const cliArgs = [...perm.cliArgs];
-        if (args.model !== undefined && args.model.trim() !== "") {
-            cliArgs.push("-m", args.model.trim());
+        const prepare = deps.prepareLeader ?? prepareLeader;
+        let leader = await prepare(deps.config, args.use_leader, {
+            env,
+            bin: resolved.path,
+            existsSync: exists,
+        });
+        if (leader.error) {
+            return failResult("grok_x_search", leader.error.code, leader.error.message, leader.error.hint);
         }
-        cliArgs.push("-p", fullPrompt);
+        const baseCliArgs = [...perm.cliArgs];
+        if (args.model !== undefined && args.model.trim() !== "") {
+            baseCliArgs.push("-m", args.model.trim());
+        }
+        baseCliArgs.push("-p", fullPrompt);
+        const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
         const runReq = {
             bin: resolved.path,
             args: cliArgs,
@@ -263,7 +274,21 @@ export async function handleGrokXSearch(args, deps) {
             timeoutMs,
             env: perm.env,
         };
-        const result = await deps.run(runReq);
+        let result = await deps.run(runReq);
+        // One-shot retry when leader-path run fails and config allows fallback.
+        if (!result.timedOut &&
+            result.code !== 0 &&
+            shouldFallbackAfterLeaderRun(leader.meta, deps.config)) {
+            leader = {
+                cli: { use: false, socket: leader.meta.socket },
+                meta: markLeaderRunFallback(leader.meta),
+            };
+            const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+            result = await deps.run({
+                ...runReq,
+                args: retryArgs,
+            });
+        }
         if (result.timedOut) {
             return failWithPermission("TIMEOUT", `grok timed out after ${timeoutMs}ms`, "Increase timeout_ms or narrow the query; default is 180000ms", perm.audit);
         }
@@ -296,6 +321,7 @@ export async function handleGrokXSearch(args, deps) {
                 usernames,
                 model: args.model,
                 exit_code: result.code,
+                leader: leader.meta,
             },
         });
     }

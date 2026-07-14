@@ -6890,8 +6890,8 @@ var require_dist = __commonJS({
 });
 
 // bridge/src/index.ts
-import { existsSync as existsSync6 } from "node:fs";
-import { join as join6 } from "node:path";
+import { existsSync as existsSync7 } from "node:fs";
+import { join as join7 } from "node:path";
 
 // node_modules/zod/v4/core/core.js
 var _a;
@@ -15467,11 +15467,17 @@ function parsePermission(value) {
 }
 function loadConfig(env = process.env) {
   const grokPath = env.GROK_PATH?.trim();
+  const leaderSocket = env.GROKODEX_LEADER_SOCKET?.trim();
   return {
     grok_path: grokPath || void 0,
     default_permission: parsePermission(env.GROKODEX_DEFAULT_PERMISSION),
     allow_inherit: parseBool(env.GROKODEX_ALLOW_INHERIT, true),
-    allow_full_access_inherit: parseBool(env.GROKODEX_ALLOW_FULL_ACCESS_INHERIT, true)
+    allow_full_access_inherit: parseBool(env.GROKODEX_ALLOW_FULL_ACCESS_INHERIT, true),
+    use_leader: parseBool(env.GROKODEX_USE_LEADER, false),
+    leader_socket: leaderSocket || void 0,
+    leader_isolate: parseBool(env.GROKODEX_LEADER_ISOLATE, false),
+    leader_fallback: parseBool(env.GROKODEX_LEADER_FALLBACK, true),
+    leader_ensure: parseBool(env.GROKODEX_LEADER_ENSURE, true)
   };
 }
 
@@ -15521,15 +15527,15 @@ async function resolveGrokBinary(env, pathModule, whichFn) {
     message: "grok binary not found on PATH; install Grok CLI or set GROK_PATH"
   };
 }
-function findInPath(name, env = process.env, existsSync7, pathJoin, pathDelimiter = process.platform === "win32" ? ";" : ":", platform = process.platform) {
+function findInPath(name, env = process.env, existsSync8, pathJoin, pathDelimiter = process.platform === "win32" ? ";" : ":", platform = process.platform) {
   const pathEnv = env.PATH ?? env.Path ?? "";
   for (const dir of pathEnv.split(pathDelimiter)) {
     if (!dir) continue;
     const candidate = pathJoin(dir, name);
-    if (existsSync7(candidate)) return candidate;
+    if (existsSync8(candidate)) return candidate;
     if (platform === "win32") {
       const withExe = candidate.endsWith(".exe") ? candidate : `${candidate}.exe`;
-      if (existsSync7(withExe)) return withExe;
+      if (existsSync8(withExe)) return withExe;
     }
   }
   return null;
@@ -15861,8 +15867,253 @@ function extractLastJsonObject(s) {
 }
 
 // bridge/src/tools/imagine.ts
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { existsSync as existsSync2, readdirSync, statSync } from "node:fs";
+import { basename, isAbsolute, join as join2, resolve } from "node:path";
+
+// bridge/src/leader.ts
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
+function envHome(env) {
+  const h = env.HOME?.trim() || env.USERPROFILE?.trim();
+  return h || homedir();
+}
+function defaultLeaderSocketPath(env, isolate) {
+  const grokHome = env.GROK_HOME?.trim() || join(envHome(env), ".grok");
+  return join(
+    grokHome,
+    isolate ? "grokodex-leader.sock" : "leader.sock"
+  );
+}
+function resolveLeaderPlan(config3, useLeaderOverride, env = process.env) {
+  const requested = useLeaderOverride !== void 0 ? useLeaderOverride : config3.use_leader;
+  if (!requested) {
+    return {
+      requested: false,
+      mode: "off",
+      socket: null,
+      ensure: config3.leader_ensure,
+      fallback: config3.leader_fallback
+    };
+  }
+  const mode = config3.leader_isolate ? "isolated" : "shared";
+  const socket = config3.leader_socket?.trim() || defaultLeaderSocketPath(env, config3.leader_isolate);
+  return {
+    requested: true,
+    mode,
+    socket,
+    ensure: config3.leader_ensure,
+    fallback: config3.leader_fallback
+  };
+}
+function applyLeaderCliFlags(args, choice) {
+  if (!choice.use) return [...args];
+  const out = [...args, "--leader"];
+  if (choice.socket) {
+    out.push("--leader-socket", choice.socket);
+  }
+  return out;
+}
+function metaOff(partial2) {
+  return {
+    requested: false,
+    used: false,
+    mode: "off",
+    socket: null,
+    ensured: false,
+    fallback: false,
+    fallback_reason: null,
+    ...partial2
+  };
+}
+async function defaultProbeLeader(socket, exists = existsSync) {
+  if (!socket || !exists(socket)) {
+    return { alive: false, pid: null };
+  }
+  return { alive: true, pid: null };
+}
+var SPAWN_ERROR_WINDOW_MS = 50;
+async function defaultEnsureLeader(args) {
+  const spawnFn = args.spawnFn ?? spawn;
+  try {
+    const child = spawnFn(
+      args.bin,
+      [
+        "agent",
+        "leader",
+        "--no-exit-on-disconnect",
+        "--leader-socket",
+        args.socket
+      ],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: args.env ?? process.env
+      }
+    );
+    const spawnError = await new Promise((resolve2) => {
+      let settled = false;
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("error", onError);
+        resolve2(err);
+      };
+      const onError = (err) => finish(err);
+      const timer = setTimeout(() => finish(null), SPAWN_ERROR_WINDOW_MS);
+      child.once("error", onError);
+    });
+    if (spawnError) {
+      const message = spawnError instanceof Error ? spawnError.message : String(spawnError);
+      return { ok: false, message };
+    }
+    child.unref();
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, message };
+  }
+}
+function defaultSleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function ensureFailedResult(plan, errorMessage, hint) {
+  if (plan.fallback) {
+    return {
+      cli: { use: false, socket: plan.socket },
+      meta: {
+        requested: true,
+        used: false,
+        mode: plan.mode,
+        socket: plan.socket,
+        ensured: false,
+        fallback: true,
+        fallback_reason: "ensure_failed"
+      }
+    };
+  }
+  return {
+    cli: { use: false, socket: plan.socket },
+    meta: {
+      requested: true,
+      used: false,
+      mode: plan.mode,
+      socket: plan.socket,
+      ensured: false,
+      fallback: false,
+      fallback_reason: "ensure_failed"
+    },
+    error: {
+      code: "GROK_EXIT_NONZERO",
+      message: errorMessage,
+      hint
+    }
+  };
+}
+async function prepareLeader(config3, useLeaderOverride, deps = {}) {
+  const env = deps.env ?? process.env;
+  const plan = resolveLeaderPlan(config3, useLeaderOverride, env);
+  if (!plan.requested || !plan.socket) {
+    return {
+      cli: { use: false, socket: null },
+      meta: metaOff({ requested: false, mode: "off" })
+    };
+  }
+  const probe = deps.probe ?? ((socket) => defaultProbeLeader(socket, deps.existsSync ?? existsSync));
+  const ensure = deps.ensure ?? (async ({ bin, socket }) => defaultEnsureLeader({
+    bin,
+    socket,
+    spawnFn: deps.spawn,
+    env
+  }));
+  const sleep = deps.sleep ?? defaultSleep;
+  const ensureWaitMs = deps.ensureWaitMs ?? 400;
+  let ensured = false;
+  let probeResult = await probe(plan.socket);
+  if (!probeResult.alive && plan.ensure) {
+    if (!deps.ensure && !deps.bin) {
+      return ensureFailedResult(
+        plan,
+        "leader ensure requires grok binary path",
+        "Run grok_setup; ensure GROK_PATH or PATH has grok"
+      );
+    }
+    const ensuredResult = await ensure({
+      bin: deps.bin ?? "",
+      socket: plan.socket
+    });
+    if (!ensuredResult.ok) {
+      return ensureFailedResult(
+        plan,
+        `failed to ensure grok leader: ${ensuredResult.message}`,
+        "Run `grok agent leader --no-exit-on-disconnect` or grok_setup with ensure=true"
+      );
+    }
+    ensured = true;
+    await sleep(ensureWaitMs);
+    probeResult = await probe(plan.socket);
+  }
+  if (!probeResult.alive) {
+    if (plan.fallback) {
+      return {
+        cli: { use: false, socket: plan.socket },
+        meta: {
+          requested: true,
+          used: false,
+          mode: plan.mode,
+          socket: plan.socket,
+          ensured,
+          fallback: true,
+          fallback_reason: "ensure_failed"
+        }
+      };
+    }
+    return {
+      cli: { use: false, socket: plan.socket },
+      meta: {
+        requested: true,
+        used: false,
+        mode: plan.mode,
+        socket: plan.socket,
+        ensured,
+        fallback: false,
+        fallback_reason: "ensure_failed"
+      },
+      error: {
+        code: "GROK_EXIT_NONZERO",
+        message: `grok leader not available at ${plan.socket}`,
+        hint: "Start with `grok agent leader` or set GROKODEX_LEADER_FALLBACK=1"
+      }
+    };
+  }
+  return {
+    cli: { use: true, socket: plan.socket },
+    meta: {
+      requested: true,
+      used: true,
+      mode: plan.mode,
+      socket: plan.socket,
+      ensured,
+      fallback: false,
+      fallback_reason: null
+    }
+  };
+}
+function shouldFallbackAfterLeaderRun(meta2, config3) {
+  return meta2.used === true && config3.leader_fallback === true;
+}
+function markLeaderRunFallback(meta2) {
+  return {
+    ...meta2,
+    used: false,
+    fallback: true,
+    fallback_reason: "run_failed"
+  };
+}
+
+// bridge/src/tools/imagine.ts
 var DEFAULT_TIMEOUT_MS = 6e5;
 var STDERR_TRUNCATE = 2e3;
 var IMAGE_EXT_RE = /\.(?:png|jpe?g|webp|gif|bmp|svg|heic|avif)\b/i;
@@ -15945,7 +16196,7 @@ function isBareImageName(s) {
   if (/\s/.test(s) || s.includes("/") || s.includes("\\")) return false;
   return IMAGE_EXT_RE.test(s);
 }
-function collectImagineArtifacts(text, saveDirAbs, cwd, fs = { existsSync }) {
+function collectImagineArtifacts(text, saveDirAbs, cwd, fs = { existsSync: existsSync2 }) {
   const notes = [];
   const ordered = [];
   const seen = /* @__PURE__ */ new Set();
@@ -16027,8 +16278,8 @@ function defaultWhich(env) {
   return () => findInPath(
     "grok",
     env,
-    existsSync,
-    join,
+    existsSync2,
+    join2,
     process.platform === "win32" ? ";" : ":"
   );
 }
@@ -16059,7 +16310,7 @@ async function handleGrokImagine(args, deps) {
       );
     }
     const env = deps.env ?? process.env;
-    const exists = deps.existsSync ?? existsSync;
+    const exists = deps.existsSync ?? existsSync2;
     const whichFn = deps.whichFn ?? defaultWhich(env);
     const getCwd = deps.getCwd ?? (() => process.cwd());
     const resolvePermImagine = deps.resolvePermImagine ?? resolvePermissionForImagine;
@@ -16087,11 +16338,26 @@ async function handleGrokImagine(args, deps) {
       aspectRatio
     });
     const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0 ? args.timeout_ms : DEFAULT_TIMEOUT_MS;
-    const cliArgs = [...perm.cliArgs];
-    if (args.model !== void 0 && args.model.trim() !== "") {
-      cliArgs.push("-m", args.model.trim());
+    const prepare = deps.prepareLeader ?? prepareLeader;
+    let leader = await prepare(deps.config, args.use_leader, {
+      env,
+      bin: resolved.path,
+      existsSync: exists
+    });
+    if (leader.error) {
+      return failResult(
+        "grok_imagine",
+        leader.error.code,
+        leader.error.message,
+        leader.error.hint
+      );
     }
-    cliArgs.push("-p", fullPrompt);
+    const baseCliArgs = [...perm.cliArgs];
+    if (args.model !== void 0 && args.model.trim() !== "") {
+      baseCliArgs.push("-m", args.model.trim());
+    }
+    baseCliArgs.push("-p", fullPrompt);
+    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
     const runReq = {
       bin: resolved.path,
       args: cliArgs,
@@ -16099,7 +16365,18 @@ async function handleGrokImagine(args, deps) {
       timeoutMs,
       env: perm.env
     };
-    const result = await deps.run(runReq);
+    let result = await deps.run(runReq);
+    if (!result.timedOut && result.code !== 0 && shouldFallbackAfterLeaderRun(leader.meta, deps.config)) {
+      leader = {
+        cli: { use: false, socket: leader.meta.socket },
+        meta: markLeaderRunFallback(leader.meta)
+      };
+      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      result = await deps.run({
+        ...runReq,
+        args: retryArgs
+      });
+    }
     if (result.timedOut) {
       return failWithPermission(
         "TIMEOUT",
@@ -16154,7 +16431,8 @@ async function handleGrokImagine(args, deps) {
         aspect_ratio: aspectRatio,
         model: args.model,
         exit_code: result.code,
-        artifact_count: artifacts.length
+        artifact_count: artifacts.length,
+        leader: leader.meta
       }
     });
   } catch (err) {
@@ -16169,16 +16447,16 @@ async function handleGrokImagine(args, deps) {
 }
 
 // bridge/src/tools/run.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { join as join2 } from "node:path";
+import { existsSync as existsSync3 } from "node:fs";
+import { join as join3 } from "node:path";
 var DEFAULT_TIMEOUT_MS2 = 6e5;
 var STDERR_TRUNCATE2 = 2e3;
 function defaultWhich2(env) {
   return () => findInPath(
     "grok",
     env,
-    existsSync2,
-    join2,
+    existsSync3,
+    join3,
     process.platform === "win32" ? ";" : ":"
   );
 }
@@ -16234,7 +16512,7 @@ async function handleGrokRun(args, deps) {
     }
     const normalized = { ...args, prompt };
     const env = deps.env ?? process.env;
-    const exists = deps.existsSync ?? existsSync2;
+    const exists = deps.existsSync ?? existsSync3;
     const whichFn = deps.whichFn ?? defaultWhich2(env);
     const resolved = await Promise.resolve(
       deps.resolveBin(env, { existsSync: exists }, whichFn)
@@ -16263,7 +16541,24 @@ async function handleGrokRun(args, deps) {
     }
     const cwd = normalized.cwd?.trim() || process.cwd();
     const timeoutMs = typeof normalized.timeout_ms === "number" && normalized.timeout_ms > 0 ? normalized.timeout_ms : DEFAULT_TIMEOUT_MS2;
-    const cliArgs = buildCliArgs(perm, normalized);
+    const prepare = deps.prepareLeader ?? prepareLeader;
+    let leader = await prepare(deps.config, normalized.use_leader, {
+      env,
+      bin: resolved.path,
+      existsSync: exists
+    });
+    if (leader.error) {
+      return failResult(
+        "grok_run",
+        leader.error.code,
+        leader.error.message,
+        leader.error.hint
+      );
+    }
+    const cliArgs = applyLeaderCliFlags(
+      buildCliArgs(perm, normalized),
+      leader.cli
+    );
     const runReq = {
       bin: resolved.path,
       args: cliArgs,
@@ -16271,7 +16566,21 @@ async function handleGrokRun(args, deps) {
       timeoutMs,
       env: perm.env
     };
-    const result = await deps.run(runReq);
+    let result = await deps.run(runReq);
+    if (!result.timedOut && result.code !== 0 && shouldFallbackAfterLeaderRun(leader.meta, deps.config)) {
+      leader = {
+        cli: { use: false, socket: leader.meta.socket },
+        meta: markLeaderRunFallback(leader.meta)
+      };
+      const retryArgs = applyLeaderCliFlags(
+        buildCliArgs(perm, normalized),
+        leader.cli
+      );
+      result = await deps.run({
+        ...runReq,
+        args: retryArgs
+      });
+    }
     if (result.timedOut) {
       return failWithPermission2(
         "TIMEOUT",
@@ -16300,7 +16609,8 @@ async function handleGrokRun(args, deps) {
         duration_ms: result.durationMs,
         cwd,
         model: normalized.model,
-        exit_code: result.code
+        exit_code: result.code,
+        leader: leader.meta
       }
     });
   } catch (err) {
@@ -16315,14 +16625,14 @@ async function handleGrokRun(args, deps) {
 }
 
 // bridge/src/tools/setup.ts
-import { existsSync as existsSync4 } from "node:fs";
-import { join as join4 } from "node:path";
-import { spawn } from "node:child_process";
+import { existsSync as existsSync5 } from "node:fs";
+import { join as join5 } from "node:path";
+import { spawn as spawn2 } from "node:child_process";
 
 // bridge/src/auth-check.ts
-import { homedir } from "node:os";
-import { join as join3 } from "node:path";
-import { existsSync as existsSync3, readFileSync, statSync as statSync2 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join4 } from "node:path";
+import { existsSync as existsSync4, readFileSync, statSync as statSync2 } from "node:fs";
 function defaultFileSize(path) {
   try {
     return statSync2(path).size;
@@ -16354,9 +16664,9 @@ async function checkGrokAuth(bin, runCmd, opts = {}) {
     const msg = err instanceof Error ? err.message : String(err);
     notes.push(`grok --version failed: ${msg}`);
   }
-  const home = opts.homeDir ?? homedir();
-  const authPath = opts.authFilePath ?? join3(home, ".grok", "auth.json");
-  const exists = opts.existsSync ?? existsSync3;
+  const home = opts.homeDir ?? homedir2();
+  const authPath = opts.authFilePath ?? join4(home, ".grok", "auth.json");
+  const exists = opts.existsSync ?? existsSync4;
   const fileSize = opts.fileSize ?? defaultFileSize;
   let auth_ok = false;
   if (exists(authPath)) {
@@ -16405,7 +16715,7 @@ async function checkGrokAuth(bin, runCmd, opts = {}) {
 // bridge/src/tools/setup.ts
 function defaultRunCmd(bin, args) {
   return new Promise((resolve2) => {
-    const child = spawn(bin, args, {
+    const child = spawn2(bin, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env
     });
@@ -16426,9 +16736,49 @@ function defaultRunCmd(bin, args) {
   });
 }
 function defaultWhich3(env) {
-  return () => findInPath("grok", env, existsSync4, join4, process.platform === "win32" ? ";" : ":");
+  return () => findInPath("grok", env, existsSync5, join5, process.platform === "win32" ? ";" : ":");
 }
-function buildSuccessText(grokPath, auth) {
+function defaultSleep2(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function resolveSetupSocket(config3, env) {
+  const custom2 = config3.leader_socket?.trim();
+  if (custom2) return custom2;
+  return defaultLeaderSocketPath(env, config3.leader_isolate);
+}
+function leaderHint(config3, probe) {
+  if (!config3.use_leader) {
+    return "Set GROKODEX_USE_LEADER=1 to enable leader-backed headless (opt-in).";
+  }
+  if (probe.alive) {
+    return "Leader is available; tools will prefer leader-backed headless when enabled.";
+  }
+  return "Leader socket is down. Start with `grok agent leader --no-exit-on-disconnect`, or re-run grok_setup with ensure=true. With GROKODEX_LEADER_FALLBACK=1 tools can still run one-shot.";
+}
+async function collectLeaderStatus(config3, env, bin, wantEnsure, deps) {
+  const socket = resolveSetupSocket(config3, env);
+  const probe = deps.probeLeader ?? ((s) => defaultProbeLeader(s, deps.existsSync ?? existsSync5));
+  const ensure = deps.ensureLeader ?? (async ({ bin: b, socket: sock }) => defaultEnsureLeader({ bin: b, socket: sock, env }));
+  const sleep = deps.sleep ?? defaultSleep2;
+  const ensureWaitMs = deps.ensureWaitMs ?? 400;
+  let result = await probe(socket);
+  if (wantEnsure && !result.alive) {
+    const ensured = await ensure({ bin, socket });
+    if (ensured.ok) {
+      await sleep(ensureWaitMs);
+      result = await probe(socket);
+    }
+  }
+  return {
+    socket,
+    alive: result.alive,
+    pid: result.pid,
+    grokodex_use_leader: config3.use_leader,
+    grokodex_leader_fallback: config3.leader_fallback,
+    hint: leaderHint(config3, result)
+  };
+}
+function buildSuccessText(grokPath, auth, leader) {
   const lines = [
     `Grok found at ${grokPath}`,
     `version: ${auth.version ?? "unknown"}`,
@@ -16442,16 +16792,25 @@ function buildSuccessText(grokPath, auth) {
   } else {
     lines.push("Ready. You can use grok_run, grok_imagine, and grok_x_search.");
   }
+  lines.push(
+    `leader: socket=${leader.socket}`,
+    `leader_alive: ${leader.alive}`,
+    `grokodex_use_leader: ${leader.grokodex_use_leader}`,
+    `grokodex_leader_fallback: ${leader.grokodex_leader_fallback}`,
+    `leader_hint: ${leader.hint}`
+  );
   return lines.join("\n");
 }
-async function handleSetup(_args = {}, deps = {}) {
+async function handleSetup(args = {}, deps = {}) {
   try {
     const env = deps.env ?? process.env;
-    const exists = deps.existsSync ?? existsSync4;
+    const exists = deps.existsSync ?? existsSync5;
     const whichFn = deps.whichFn ?? defaultWhich3(env);
     const resolveBin = deps.resolveBin ?? resolveGrokBinary;
     const checkAuth = deps.checkAuth ?? checkGrokAuth;
     const runCmd = deps.runCmd ?? defaultRunCmd;
+    const config3 = deps.config ?? loadConfig(env);
+    const wantEnsure = args.ensure === true;
     const resolved = await Promise.resolve(resolveBin(env, { existsSync: exists }, whichFn));
     if ("error" in resolved) {
       return failResult(
@@ -16462,13 +16821,21 @@ async function handleSetup(_args = {}, deps = {}) {
       );
     }
     const auth = await Promise.resolve(checkAuth(resolved.path, runCmd));
+    const leader = await collectLeaderStatus(
+      config3,
+      env,
+      resolved.path,
+      wantEnsure,
+      deps
+    );
     return okResult("grok_setup", {
-      text: buildSuccessText(resolved.path, auth),
+      text: buildSuccessText(resolved.path, auth, leader),
       meta: {
         grok_path: resolved.path,
         version: auth.version,
         auth_ok: auth.auth_ok,
-        detail: auth.detail
+        detail: auth.detail,
+        leader
       }
     });
   } catch (err) {
@@ -16483,8 +16850,8 @@ async function handleSetup(_args = {}, deps = {}) {
 }
 
 // bridge/src/tools/x-search.ts
-import { existsSync as existsSync5 } from "node:fs";
-import { join as join5 } from "node:path";
+import { existsSync as existsSync6 } from "node:fs";
+import { join as join6 } from "node:path";
 var DEFAULT_TIMEOUT_MS3 = 18e4;
 var DEFAULT_LIMIT = 5;
 var MAX_LIMIT = 50;
@@ -16651,8 +17018,8 @@ function defaultWhich4(env) {
   return () => findInPath(
     "grok",
     env,
-    existsSync5,
-    join5,
+    existsSync6,
+    join6,
     process.platform === "win32" ? ";" : ":"
   );
 }
@@ -16676,7 +17043,7 @@ async function handleGrokXSearch(args, deps) {
       );
     }
     const env = deps.env ?? process.env;
-    const exists = deps.existsSync ?? existsSync5;
+    const exists = deps.existsSync ?? existsSync6;
     const whichFn = deps.whichFn ?? defaultWhich4(env);
     const getCwd = deps.getCwd ?? (() => process.cwd());
     const resolvePermXSearch = deps.resolvePermXSearch ?? resolvePermissionForXSearch;
@@ -16710,11 +17077,26 @@ async function handleGrokXSearch(args, deps) {
     });
     const cwd = args.cwd?.trim() || getCwd();
     const timeoutMs = typeof args.timeout_ms === "number" && args.timeout_ms > 0 ? args.timeout_ms : DEFAULT_TIMEOUT_MS3;
-    const cliArgs = [...perm.cliArgs];
-    if (args.model !== void 0 && args.model.trim() !== "") {
-      cliArgs.push("-m", args.model.trim());
+    const prepare = deps.prepareLeader ?? prepareLeader;
+    let leader = await prepare(deps.config, args.use_leader, {
+      env,
+      bin: resolved.path,
+      existsSync: exists
+    });
+    if (leader.error) {
+      return failResult(
+        "grok_x_search",
+        leader.error.code,
+        leader.error.message,
+        leader.error.hint
+      );
     }
-    cliArgs.push("-p", fullPrompt);
+    const baseCliArgs = [...perm.cliArgs];
+    if (args.model !== void 0 && args.model.trim() !== "") {
+      baseCliArgs.push("-m", args.model.trim());
+    }
+    baseCliArgs.push("-p", fullPrompt);
+    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
     const runReq = {
       bin: resolved.path,
       args: cliArgs,
@@ -16722,7 +17104,18 @@ async function handleGrokXSearch(args, deps) {
       timeoutMs,
       env: perm.env
     };
-    const result = await deps.run(runReq);
+    let result = await deps.run(runReq);
+    if (!result.timedOut && result.code !== 0 && shouldFallbackAfterLeaderRun(leader.meta, deps.config)) {
+      leader = {
+        cli: { use: false, socket: leader.meta.socket },
+        meta: markLeaderRunFallback(leader.meta)
+      };
+      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      result = await deps.run({
+        ...runReq,
+        args: retryArgs
+      });
+    }
     if (result.timedOut) {
       return failWithPermission3(
         "TIMEOUT",
@@ -16767,7 +17160,8 @@ async function handleGrokXSearch(args, deps) {
         to_date: toDate,
         usernames,
         model: args.model,
-        exit_code: result.code
+        exit_code: result.code,
+        leader: leader.meta
       }
     });
   } catch (err) {
@@ -16797,13 +17191,17 @@ var server = new Server(
 var TOOLS = [
   {
     name: "grok_setup",
-    description: "Diagnose local Grok CLI: binary path, version, and login health. No business side effects.",
+    description: "Diagnose local Grok CLI: binary path, version, login health, and leader status. Read-only by default; pass ensure=true to start leader if down.",
     inputSchema: {
       type: "object",
       properties: {
         fix: {
           type: "boolean",
           description: "Reserved for future auto-fix hints; currently ignored"
+        },
+        ensure: {
+          type: "boolean",
+          description: "If true, try to start local grok leader when socket is down (default false)"
         }
       }
     }
@@ -16852,6 +17250,10 @@ var TOOLS = [
         extra_rules: {
           type: "string",
           description: "Additional rules appended to the prompt"
+        },
+        use_leader: {
+          type: "boolean",
+          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)"
         }
       },
       required: ["prompt"]
@@ -16886,6 +17288,10 @@ var TOOLS = [
         model: {
           type: "string",
           description: "Optional Grok model override"
+        },
+        use_leader: {
+          type: "boolean",
+          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)"
         }
       },
       required: ["prompt"]
@@ -16934,6 +17340,10 @@ var TOOLS = [
         model: {
           type: "string",
           description: "Optional Grok model override"
+        },
+        use_leader: {
+          type: "boolean",
+          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)"
         }
       },
       required: ["query"]
@@ -16945,6 +17355,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 function asString(v) {
   return typeof v === "string" ? v : void 0;
+}
+function asBoolean(v) {
+  return typeof v === "boolean" ? v : void 0;
+}
+function parseSetupArgs(raw) {
+  const args = raw ?? {};
+  return {
+    fix: asBoolean(args.fix),
+    ensure: asBoolean(args.ensure)
+  };
 }
 function asNumber(v) {
   return typeof v === "number" && Number.isFinite(v) ? v : void 0;
@@ -16969,7 +17389,8 @@ function parseGrokRunArgs(raw) {
     model: asString(args.model),
     max_turns: asNumber(args.max_turns),
     timeout_ms: asNumber(args.timeout_ms),
-    extra_rules: asString(args.extra_rules)
+    extra_rules: asString(args.extra_rules),
+    use_leader: typeof args.use_leader === "boolean" ? args.use_leader : void 0
   };
 }
 function parseGrokImagineArgs(raw) {
@@ -16980,7 +17401,8 @@ function parseGrokImagineArgs(raw) {
     save_dir: asString(args.save_dir),
     cwd: asString(args.cwd),
     timeout_ms: asNumber(args.timeout_ms),
-    model: asString(args.model)
+    model: asString(args.model),
+    use_leader: typeof args.use_leader === "boolean" ? args.use_leader : void 0
   };
 }
 function asXSearchMode(v) {
@@ -17002,7 +17424,8 @@ function parseGrokXSearchArgs(raw) {
     usernames: asStringArray(args.usernames),
     cwd: asString(args.cwd),
     timeout_ms: asNumber(args.timeout_ms),
-    model: asString(args.model)
+    model: asString(args.model),
+    use_leader: typeof args.use_leader === "boolean" ? args.use_leader : void 0
   };
 }
 function textResult(env) {
@@ -17014,7 +17437,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const name = request.params.name;
   const rawArgs = request.params.arguments ?? {};
   if (name === "grok_setup") {
-    const env = await handleSetup(rawArgs);
+    const env = await handleSetup(parseSetupArgs(rawArgs));
     return textResult(env);
   }
   if (name === "grok_run") {
@@ -17024,12 +17447,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       run: runGrok,
       config: config2,
       env: process.env,
-      existsSync: existsSync6,
+      existsSync: existsSync7,
       whichFn: () => findInPath(
         "grok",
         process.env,
-        existsSync6,
-        join6,
+        existsSync7,
+        join7,
         process.platform === "win32" ? ";" : ":"
       )
     });
@@ -17039,13 +17462,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const env = await handleGrokImagine(parseGrokImagineArgs(rawArgs), {
       resolveBin: resolveGrokBinary,
       run: runGrok,
+      config: config2,
       env: process.env,
-      existsSync: existsSync6,
+      existsSync: existsSync7,
       whichFn: () => findInPath(
         "grok",
         process.env,
-        existsSync6,
-        join6,
+        existsSync7,
+        join7,
         process.platform === "win32" ? ";" : ":"
       )
     });
@@ -17055,13 +17479,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const env = await handleGrokXSearch(parseGrokXSearchArgs(rawArgs), {
       resolveBin: resolveGrokBinary,
       run: runGrok,
+      config: config2,
       env: process.env,
-      existsSync: existsSync6,
+      existsSync: existsSync7,
       whichFn: () => findInPath(
         "grok",
         process.env,
-        existsSync6,
-        join6,
+        existsSync7,
+        join7,
         process.platform === "win32" ? ";" : ":"
       )
     });

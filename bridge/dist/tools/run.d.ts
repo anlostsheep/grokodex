@@ -1,5 +1,6 @@
 import type { GrokodexConfig } from "../config.js";
 import { resolveGrokBinary, type WhichFn } from "../grok-bin.js";
+import { prepareLeader } from "../leader.js";
 import { resolvePermission } from "../permission.js";
 import { runGrok } from "../runner.js";
 import type { CodexApproval, CodexSandbox, PermissionMode, ToolEnvelope } from "../types.js";
@@ -13,6 +14,8 @@ export interface GrokRunArgs {
     max_turns?: number;
     timeout_ms?: number;
     extra_rules?: string;
+    /** Per-call override for GROKODEX_USE_LEADER. */
+    use_leader?: boolean;
 }
 export interface GrokRunDeps {
     resolveBin: typeof resolveGrokBinary;
@@ -23,6 +26,7 @@ export interface GrokRunDeps {
     env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
     existsSync?: (p: string) => boolean;
     whichFn?: WhichFn;
+    prepareLeader?: typeof prepareLeader;
 }
 /**
  * Replace or append `--max-turns <n>` in CLI args from permission module.

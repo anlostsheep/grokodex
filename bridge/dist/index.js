@@ -24,13 +24,17 @@ const server = new Server({
 const TOOLS = [
     {
         name: "grok_setup",
-        description: "Diagnose local Grok CLI: binary path, version, and login health. No business side effects.",
+        description: "Diagnose local Grok CLI: binary path, version, login health, and leader status. Read-only by default; pass ensure=true to start leader if down.",
         inputSchema: {
             type: "object",
             properties: {
                 fix: {
                     type: "boolean",
                     description: "Reserved for future auto-fix hints; currently ignored",
+                },
+                ensure: {
+                    type: "boolean",
+                    description: "If true, try to start local grok leader when socket is down (default false)",
                 },
             },
         },
@@ -80,6 +84,10 @@ const TOOLS = [
                     type: "string",
                     description: "Additional rules appended to the prompt",
                 },
+                use_leader: {
+                    type: "boolean",
+                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+                },
             },
             required: ["prompt"],
         },
@@ -113,6 +121,10 @@ const TOOLS = [
                 model: {
                     type: "string",
                     description: "Optional Grok model override",
+                },
+                use_leader: {
+                    type: "boolean",
+                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
                 },
             },
             required: ["prompt"],
@@ -162,6 +174,10 @@ const TOOLS = [
                     type: "string",
                     description: "Optional Grok model override",
                 },
+                use_leader: {
+                    type: "boolean",
+                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+                },
             },
             required: ["query"],
         },
@@ -172,6 +188,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 function asString(v) {
     return typeof v === "string" ? v : undefined;
+}
+function asBoolean(v) {
+    return typeof v === "boolean" ? v : undefined;
+}
+function parseSetupArgs(raw) {
+    const args = raw ?? {};
+    return {
+        fix: asBoolean(args.fix),
+        ensure: asBoolean(args.ensure),
+    };
 }
 function asNumber(v) {
     return typeof v === "number" && Number.isFinite(v) ? v : undefined;
@@ -204,6 +230,7 @@ function parseGrokRunArgs(raw) {
         max_turns: asNumber(args.max_turns),
         timeout_ms: asNumber(args.timeout_ms),
         extra_rules: asString(args.extra_rules),
+        use_leader: typeof args.use_leader === "boolean" ? args.use_leader : undefined,
     };
 }
 function parseGrokImagineArgs(raw) {
@@ -215,6 +242,7 @@ function parseGrokImagineArgs(raw) {
         cwd: asString(args.cwd),
         timeout_ms: asNumber(args.timeout_ms),
         model: asString(args.model),
+        use_leader: typeof args.use_leader === "boolean" ? args.use_leader : undefined,
     };
 }
 function asXSearchMode(v) {
@@ -238,6 +266,7 @@ function parseGrokXSearchArgs(raw) {
         cwd: asString(args.cwd),
         timeout_ms: asNumber(args.timeout_ms),
         model: asString(args.model),
+        use_leader: typeof args.use_leader === "boolean" ? args.use_leader : undefined,
     };
 }
 function textResult(env) {
@@ -249,7 +278,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const name = request.params.name;
     const rawArgs = (request.params.arguments ?? {});
     if (name === "grok_setup") {
-        const env = await handleSetup(rawArgs);
+        const env = await handleSetup(parseSetupArgs(rawArgs));
         return textResult(env);
     }
     if (name === "grok_run") {
@@ -268,6 +297,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const env = await handleGrokImagine(parseGrokImagineArgs(rawArgs), {
             resolveBin: resolveGrokBinary,
             run: runGrok,
+            config,
             env: process.env,
             existsSync,
             whichFn: () => findInPath("grok", process.env, existsSync, join, process.platform === "win32" ? ";" : ":"),
@@ -278,6 +308,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const env = await handleGrokXSearch(parseGrokXSearchArgs(rawArgs), {
             resolveBin: resolveGrokBinary,
             run: runGrok,
+            config,
             env: process.env,
             existsSync,
             whichFn: () => findInPath("grok", process.env, existsSync, join, process.platform === "win32" ? ";" : ":"),

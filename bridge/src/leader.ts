@@ -35,6 +35,11 @@ export type EnsureFn = (args: {
   bin: string;
   socket: string;
 }) => Promise<{ ok: true } | { ok: false; message: string }>;
+export type LeaderSpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess;
 
 export interface LeaderDeps {
   env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
@@ -43,11 +48,7 @@ export interface LeaderDeps {
   /** Grok binary path; required when ensure runs with default ensure. */
   bin?: string;
   existsSync?: (p: string) => boolean;
-  spawn?: (
-    command: string,
-    args: readonly string[],
-    options: SpawnOptions,
-  ) => ChildProcess;
+  spawn?: LeaderSpawnFn;
   /** Wait after spawn before re-probe (ms). */
   ensureWaitMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -157,10 +158,10 @@ const SPAWN_ERROR_WINDOW_MS = 50;
 export async function defaultEnsureLeader(args: {
   bin: string;
   socket: string;
-  spawnFn?: typeof spawn;
+  spawnFn?: LeaderSpawnFn;
   env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const spawnFn = args.spawnFn ?? spawn;
+  const spawnFn: LeaderSpawnFn = args.spawnFn ?? spawn;
   try {
     const child = spawnFn(
       args.bin,
