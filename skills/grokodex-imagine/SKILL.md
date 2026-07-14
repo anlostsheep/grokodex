@@ -70,10 +70,9 @@ Failure (`ok: false`):
 
 ## Performance note
 
-When the host enables `GROKODEX_USE_LEADER=1`, the bridge may attach headless
-calls to a shared Grok leader process (warm MCP/skills). You do not need to
-pass leader args. Inspect `meta.leader` if debugging slowness or fallbacks.
-This does **not** resume prior chat sessions.
+Leader-backed headless is **on by default** (warm MCP/skills). You do not need
+to pass leader args. Inspect `meta.leader` if debugging; set `use_leader=false`
+or `GROKODEX_USE_LEADER=0` for pure one-shot. Does **not** resume chat sessions.
 
 ## Hard rules
 

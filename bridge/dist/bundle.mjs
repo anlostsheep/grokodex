@@ -15473,7 +15473,7 @@ function loadConfig(env = process.env) {
     default_permission: parsePermission(env.GROKODEX_DEFAULT_PERMISSION),
     allow_inherit: parseBool(env.GROKODEX_ALLOW_INHERIT, true),
     allow_full_access_inherit: parseBool(env.GROKODEX_ALLOW_FULL_ACCESS_INHERIT, true),
-    use_leader: parseBool(env.GROKODEX_USE_LEADER, false),
+    use_leader: parseBool(env.GROKODEX_USE_LEADER, true),
     leader_socket: leaderSocket || void 0,
     leader_isolate: parseBool(env.GROKODEX_LEADER_ISOLATE, false),
     leader_fallback: parseBool(env.GROKODEX_LEADER_FALLBACK, true),
@@ -16811,7 +16811,7 @@ function resolveSetupSocket(config3, env) {
 }
 function leaderHint(config3, probe) {
   if (!config3.use_leader) {
-    return "Set GROKODEX_USE_LEADER=1 to enable leader-backed headless (opt-in).";
+    return "Leader path is off. Set GROKODEX_USE_LEADER=1 (default) to re-enable warm headless.";
   }
   if (probe.alive) {
     return "Leader is available; tools will prefer leader-backed headless when enabled.";
@@ -17324,7 +17324,7 @@ var TOOLS = [
         },
         use_leader: {
           type: "boolean",
-          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)"
+          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)"
         }
       },
       required: ["prompt"]
@@ -17362,7 +17362,7 @@ var TOOLS = [
         },
         use_leader: {
           type: "boolean",
-          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)"
+          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)"
         }
       },
       required: ["prompt"]
@@ -17414,7 +17414,7 @@ var TOOLS = [
         },
         use_leader: {
           type: "boolean",
-          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)"
+          description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)"
         }
       },
       required: ["query"]

@@ -49,28 +49,62 @@ irm https://x.ai/cli/install.ps1 | iex
 
 ---
 
-## 3. 安装路径 A（Codex App 插件页）
+## 3. 安装到 Codex App（Personal marketplace）
 
-在 **设置 → 插件** 中安装/启用。CLI 与 App 共用同一套 marketplace 与 `~/.codex/config.toml`。
+CLI 与 App 共用 marketplace 与 `~/.codex/config.toml`。
 
-### 3.1 本机当前状态（已配好时可跳过 3.2）
+### 3.1 推荐：一键脚本（开发机）
 
-开发机上若已安装，`codex plugin list` 应出现：
+在本仓库根目录：
+
+```bash
+# 首次或改代码后：构建 bridge → 同步到 Codex 插件目录 → marketplace → plugin add
+chmod +x scripts/install-codex-plugin.sh   # 仅首次需要
+./scripts/install-codex-plugin.sh
+```
+
+脚本会：
+
+1. `npm run build`（可用 `--no-build` 跳过）
+2. 把仓库同步到：
+   - `~/.codex/plugins/grokodex`（主安装路径）
+   - `~/.codex/plugins/cache/personal/grokodex/0.1.0`（Codex 缓存副本）
+3. 写入 `~/.agents/plugins/marketplace.json`（Personal 源指向上述路径）
+4. 生成 `.mcp.json`：用**绝对路径**的 `node` 启动 `bridge/dist/bundle.mjs`（避免 App 找不到 fnm 的 node）
+5. 默认 MCP env：`GROKODEX_USE_LEADER=1`（暖 backend）；可用 `--no-leader` 关掉
+6. 若 PATH 上有 `codex`：执行 `codex plugin add grokodex@personal`
+
+然后：
+
+1. **完全退出并重启 Codex App**（Cmd+Q）
+2. **设置 → 插件 → Personal**：确认 **Grokodex** 为开
+3. **新开会话**（旧会话可能仍挂旧 bundle）
+
+关闭 leader 重装示例：
+
+```bash
+./scripts/install-codex-plugin.sh --no-leader
+```
+
+### 3.2 已安装时只刷新
+
+```bash
+./scripts/install-codex-plugin.sh          # 改代码后
+# 或
+./scripts/install-codex-plugin.sh --no-build   # 仅重同步已有 dist
+```
+
+`codex plugin list` 应类似：
 
 ```text
 grokodex@personal  installed, enabled
 ```
 
-你只需要：
+### 3.3 手工安装（不跑脚本时）
 
-1. **完全退出并重启 Codex App**
-2. 打开 **设置 → 插件**，在 **Personal** / 已安装中确认 **Grokodex** 开关为开
-3. **新开会话** 再测（旧会话可能看不到新 skills/MCP）
-
-### 3.2 从零配置（换机或重装时）
-
-1. 插件实体目录：`~/.codex/plugins/grokodex`（内含 `.codex-plugin/`、`skills/`、`bridge/dist/bundle.mjs`、`.mcp.json`）
-2. Personal marketplace：`~/.agents/plugins/marketplace.json`，`source.path` 相对 **`$HOME`**：
+1. `npm run build`
+2. 将仓库内容复制到 `~/.codex/plugins/grokodex`（至少包含 `.codex-plugin/`、`skills/`、`bridge/dist/bundle.mjs`、`assets/`、`.mcp.json`）
+3. 配置 Personal marketplace：`~/.agents/plugins/marketplace.json`（`source.path` 相对 **`$HOME`**）：
 
 ```json
 {
@@ -93,22 +127,18 @@ grokodex@personal  installed, enabled
 }
 ```
 
-3. CLI 安装并启用：
+4. `codex plugin add grokodex@personal`  
+   模板见 [`marketplace.example.json`](./marketplace.example.json)。
 
-```bash
-codex plugin add grokodex@personal
-# 或在 App 插件页 Install；config 中 [plugins."grokodex@personal"] enabled = true
-```
+**源码目录 ≠ 运行目录：** Codex 加载的是 `~/.codex/plugins/...` 下的副本。改仓库后必须重新 build + 同步（跑脚本），否则 App 仍用旧 bundle。
 
-模板见 [`marketplace.example.json`](./marketplace.example.json)。
-
-### 3.3 快速自检
+### 3.4 快速自检
 
 新会话中：
 
 - skills：`grokodex-setup` / `grokodex-run` / `grokodex-imagine` / `grokodex-x-search`
-- 先 `grok_setup`（`auth_ok`）
-- 再试 `grok_run` 或生图 / 搜 X
+- 先 `grok_setup`（`auth_ok`；可看 `meta.leader`）
+- 再试 `grok_run`（默认会尝试 leader；失败则 one-shot fallback）
 
 ---
 
@@ -176,17 +206,21 @@ MCP 子进程通常拿不到当前 Codex 会话 live sandbox：
 
 不配置任何变量也应能按默认工作。
 
-### Leader-backed headless (opt-in)
+### Leader-backed headless（默认开启）
+
+Headless 调用默认走本机 Grok **leader** 暖 backend（复用已加载的 MCP/skills）。无 leader 时会 ensure；失败则 **one-shot fallback**（`FALLBACK` 默认开）。
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `GROKODEX_USE_LEADER` | `false` | Use `--leader` for warm backend |
-| `GROKODEX_LEADER_SOCKET` | Grok default | Custom socket path |
-| `GROKODEX_LEADER_ISOLATE` | `false` | Dedicated `grokodex-leader.sock` |
-| `GROKODEX_LEADER_FALLBACK` | `true` | Fall back to one-shot on leader failure |
-| `GROKODEX_LEADER_ENSURE` | `true` | Spawn leader if socket missing |
+| `GROKODEX_USE_LEADER` | **`true`** | 使用 `--leader`；设为 `0`/`false` 强制 one-shot |
+| `GROKODEX_LEADER_SOCKET` | Grok 默认 | 自定义 socket |
+| `GROKODEX_LEADER_ISOLATE` | `false` | 使用专用 `grokodex-leader.sock` |
+| `GROKODEX_LEADER_FALLBACK` | `true` | leader 失败时退回 one-shot |
+| `GROKODEX_LEADER_ENSURE` | `true` | socket 不可用时尝试 spawn leader |
+| `GROKODEX_LEADER_ENSURE_TIMEOUT_MS` | `8000` | ensure 后等待就绪的最长时间 |
+| `GROKODEX_LEADER_ENSURE_POLL_MS` | `100` | 就绪轮询间隔 |
 
-Does not change conversation continuity (no auto `--resume`). See design spec 2026-07-14.
+这**不会**自动 `--resume` 上一次对话（无会话连续）。排障看返回里的 `meta.leader`。
 
 > **警告：** Full-Access / `danger-full-access` inherit 费用与破坏力都更高。仅在用户明确要求时使用。
 

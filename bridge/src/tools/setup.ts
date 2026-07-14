@@ -121,7 +121,7 @@ function leaderHint(
   probe: LeaderProbeResult,
 ): string {
   if (!config.use_leader) {
-    return "Set GROKODEX_USE_LEADER=1 to enable leader-backed headless (opt-in).";
+    return "Leader path is off. Set GROKODEX_USE_LEADER=1 (default) to re-enable warm headless.";
   }
   if (probe.alive) {
     return "Leader is available; tools will prefer leader-backed headless when enabled.";

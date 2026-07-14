@@ -5,7 +5,7 @@ export interface GrokodexConfig {
     default_permission: PermissionMode;
     allow_inherit: boolean;
     allow_full_access_inherit: boolean;
-    /** Opt-in leader-backed headless (default false). */
+    /** Leader-backed headless (default true). Set GROKODEX_USE_LEADER=0 to disable. */
     use_leader: boolean;
     /** Custom leader socket; empty = Grok default. */
     leader_socket?: string;
@@ -19,6 +19,6 @@ export interface GrokodexConfig {
 /**
  * Load bridge config from environment variables.
  * Defaults: permission=restricted, allow_inherit=true, allow_full_access_inherit=true,
- * use_leader=false, leader_fallback=true, leader_ensure=true, leader_isolate=false.
+ * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false.
  */
 export declare function loadConfig(env?: NodeJS.ProcessEnv | Record<string, string | undefined>): GrokodexConfig;

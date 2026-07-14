@@ -86,7 +86,7 @@ const TOOLS = [
                 },
                 use_leader: {
                     type: "boolean",
-                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)",
                 },
             },
             required: ["prompt"],
@@ -124,7 +124,7 @@ const TOOLS = [
                 },
                 use_leader: {
                     type: "boolean",
-                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)",
                 },
             },
             required: ["prompt"],
@@ -176,7 +176,7 @@ const TOOLS = [
                 },
                 use_leader: {
                     type: "boolean",
-                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+                    description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)",
                 },
             },
             required: ["query"],
