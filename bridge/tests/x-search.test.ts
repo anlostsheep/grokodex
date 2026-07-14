@@ -18,6 +18,13 @@ const baseConfig: GrokodexConfig = {
   leader_isolate: false,
   leader_fallback: true,
   leader_ensure: true,
+  x_search_max_turns: 5,
+  imagine_max_turns: 4,
+  x_search_tools: "x_search",
+  imagine_tools: "image_gen",
+  x_search_timeout_ms: 90_000,
+  imagine_timeout_ms: 120_000,
+  narrow_tools_strict: true,
 };
 
 const xSearchPerm: ResolvedPermission = {

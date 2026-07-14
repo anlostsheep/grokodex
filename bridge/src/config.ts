@@ -16,6 +16,23 @@ export interface GrokodexConfig {
   leader_fallback: boolean;
   /** Spawn leader when socket unhealthy. */
   leader_ensure: boolean;
+  /** grok_x_search --max-turns (default 5). */
+  x_search_max_turns: number;
+  /** grok_imagine --max-turns (default 4). */
+  imagine_max_turns: number;
+  /** grok_x_search --tools CSV (default x_search). */
+  x_search_tools: string;
+  /** grok_imagine --tools CSV (default image_gen). */
+  imagine_tools: string;
+  /** Default timeout for grok_x_search when timeout_ms omitted. */
+  x_search_timeout_ms: number;
+  /** Default timeout for grok_imagine when timeout_ms omitted. */
+  imagine_timeout_ms: number;
+  /**
+   * When true, narrow tools never silently fall back to a wide 30-turn path.
+   * Default true (reserved for future failure handling; short path always on).
+   */
+  narrow_tools_strict: boolean;
 }
 
 function parseBool(value: string | undefined, defaultValue: boolean): boolean {
@@ -31,10 +48,27 @@ function parsePermission(value: string | undefined): PermissionMode {
   return "restricted";
 }
 
+function parsePositiveInt(
+  value: string | undefined,
+  defaultValue: number,
+): number {
+  if (value === undefined || value.trim() === "") return defaultValue;
+  const n = Number(value.trim());
+  if (!Number.isFinite(n) || n < 1) return defaultValue;
+  return Math.floor(n);
+}
+
+function parseToolsCsv(value: string | undefined, defaultValue: string): string {
+  const t = value?.trim();
+  if (!t) return defaultValue;
+  return t;
+}
+
 /**
  * Load bridge config from environment variables.
  * Defaults: permission=restricted, allow_inherit=true, allow_full_access_inherit=true,
- * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false.
+ * use_leader=true, leader_fallback=true, leader_ensure=true, leader_isolate=false,
+ * narrow x_search turns=5 / imagine=4, timeouts 90s / 120s.
  */
 export function loadConfig(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
@@ -51,5 +85,12 @@ export function loadConfig(
     leader_isolate: parseBool(env.GROKODEX_LEADER_ISOLATE, false),
     leader_fallback: parseBool(env.GROKODEX_LEADER_FALLBACK, true),
     leader_ensure: parseBool(env.GROKODEX_LEADER_ENSURE, true),
+    x_search_max_turns: parsePositiveInt(env.GROKODEX_X_SEARCH_MAX_TURNS, 5),
+    imagine_max_turns: parsePositiveInt(env.GROKODEX_IMAGINE_MAX_TURNS, 4),
+    x_search_tools: parseToolsCsv(env.GROKODEX_X_SEARCH_TOOLS, "x_search"),
+    imagine_tools: parseToolsCsv(env.GROKODEX_IMAGINE_TOOLS, "image_gen"),
+    x_search_timeout_ms: parsePositiveInt(env.GROKODEX_X_SEARCH_TIMEOUT_MS, 90_000),
+    imagine_timeout_ms: parsePositiveInt(env.GROKODEX_IMAGINE_TIMEOUT_MS, 120_000),
+    narrow_tools_strict: parseBool(env.GROKODEX_NARROW_TOOLS_STRICT, true),
   };
 }
