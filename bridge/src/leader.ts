@@ -145,15 +145,20 @@ export async function defaultProbeLeader(
   return { alive: true, pid: null };
 }
 
+/** How long to wait for a synchronous-ish spawn `error` (e.g. ENOENT) before treating spawn as ok. */
+const SPAWN_ERROR_WINDOW_MS = 50;
+
 /**
  * Detached spawn: `grok agent leader --no-exit-on-disconnect [--leader-socket PATH]`
  * Does not wait for exit. Caller should re-probe after a short wait.
  * Does not kill the leader on bridge exit (unref only).
+ * Listens briefly for child `error` so a missing binary returns `{ ok: false }`.
  */
 export async function defaultEnsureLeader(args: {
   bin: string;
   socket: string;
   spawnFn?: typeof spawn;
+  env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const spawnFn = args.spawnFn ?? spawn;
   try {
@@ -169,9 +174,31 @@ export async function defaultEnsureLeader(args: {
       {
         detached: true,
         stdio: "ignore",
-        env: process.env,
+        env: (args.env ?? process.env) as NodeJS.ProcessEnv,
       },
     );
+
+    // spawn() returns before async failures (ENOENT); catch them briefly.
+    const spawnError = await new Promise<Error | null>((resolve) => {
+      let settled = false;
+      const finish = (err: Error | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("error", onError);
+        resolve(err);
+      };
+      const onError = (err: Error) => finish(err);
+      const timer = setTimeout(() => finish(null), SPAWN_ERROR_WINDOW_MS);
+      child.once("error", onError);
+    });
+
+    if (spawnError) {
+      const message =
+        spawnError instanceof Error ? spawnError.message : String(spawnError);
+      return { ok: false, message };
+    }
+
     child.unref();
     return { ok: true };
   } catch (err) {
@@ -252,6 +279,7 @@ export async function prepareLeader(
         bin,
         socket,
         spawnFn: deps.spawn,
+        env,
       }));
   const sleep = deps.sleep ?? defaultSleep;
   const ensureWaitMs = deps.ensureWaitMs ?? 400;
@@ -285,6 +313,8 @@ export async function prepareLeader(
     probeResult = await probe(plan.socket);
   }
 
+  // Pre-run unavailability is always ensure_failed (even if ensure spawn "succeeded"
+  // but re-probe is still dead). run_failed is reserved for markLeaderRunFallback.
   if (!probeResult.alive) {
     if (plan.fallback) {
       return {
@@ -296,7 +326,7 @@ export async function prepareLeader(
           socket: plan.socket,
           ensured,
           fallback: true,
-          fallback_reason: ensured ? "run_failed" : "ensure_failed",
+          fallback_reason: "ensure_failed",
         },
       };
     }

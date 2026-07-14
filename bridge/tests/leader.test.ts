@@ -1,11 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
 import {
   applyLeaderCliFlags,
+  defaultEnsureLeader,
   defaultLeaderSocketPath,
+  markLeaderRunFallback,
   resolveLeaderPlan,
   prepareLeader,
+  shouldFallbackAfterLeaderRun,
 } from "../src/leader.js";
 import type { GrokodexConfig } from "../src/config.js";
+import type { LeaderMeta } from "../src/types.js";
 
 const baseConfig: GrokodexConfig = {
   default_permission: "restricted",
@@ -22,6 +28,12 @@ const fastEnsureDeps = {
   ensureWaitMs: 0,
   sleep: async () => {},
 };
+
+function fakeChild(): ChildProcess {
+  const ee = new EventEmitter() as ChildProcess;
+  ee.unref = vi.fn(() => ee);
+  return ee;
+}
 
 describe("defaultLeaderSocketPath", () => {
   it("uses GROK_HOME or ~/.grok and isolate name", () => {
@@ -114,13 +126,14 @@ describe("prepareLeader", () => {
     expect(ensure).not.toHaveBeenCalled();
   });
 
-  it("uses leader when probe says alive", async () => {
+  it("uses leader when probe says alive and does not call ensure", async () => {
+    const ensure = vi.fn();
     const r = await prepareLeader(
       { ...baseConfig, use_leader: true },
       undefined,
       {
         probe: async () => ({ alive: true, pid: 9 }),
-        ensure: vi.fn(),
+        ensure,
         env: { HOME: "/h" },
       },
     );
@@ -128,6 +141,7 @@ describe("prepareLeader", () => {
     expect(r.meta.used).toBe(true);
     expect(r.meta.ensured).toBe(false);
     expect(r.meta.fallback).toBe(false);
+    expect(ensure).not.toHaveBeenCalled();
   });
 
   it("ensures then uses when probe was dead", async () => {
@@ -144,6 +158,75 @@ describe("prepareLeader", () => {
     expect(ensure).toHaveBeenCalled();
     expect(r.cli.use).toBe(true);
     expect(r.meta.ensured).toBe(true);
+  });
+
+  it("falls back with ensure_failed when ensure ok but re-probe still dead", async () => {
+    const ensure = vi.fn(async () => ({ ok: true as const }));
+    const probe = vi.fn(async () => ({ alive: false, pid: null }));
+    const r = await prepareLeader(
+      {
+        ...baseConfig,
+        use_leader: true,
+        leader_ensure: true,
+        leader_fallback: true,
+      },
+      undefined,
+      { probe, ensure, env: { HOME: "/h" }, ...fastEnsureDeps },
+    );
+    expect(ensure).toHaveBeenCalled();
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(r.cli.use).toBe(false);
+    expect(r.meta.ensured).toBe(true);
+    expect(r.meta.fallback).toBe(true);
+    expect(r.meta.fallback_reason).toBe("ensure_failed");
+    expect(r.error).toBeUndefined();
+  });
+
+  it("does not call ensure when leader_ensure false and probe dead", async () => {
+    const ensure = vi.fn();
+    const r = await prepareLeader(
+      {
+        ...baseConfig,
+        use_leader: true,
+        leader_ensure: false,
+        leader_fallback: true,
+      },
+      undefined,
+      {
+        probe: async () => ({ alive: false, pid: null }),
+        ensure,
+        env: { HOME: "/h" },
+      },
+    );
+    expect(ensure).not.toHaveBeenCalled();
+    expect(r.cli.use).toBe(false);
+    expect(r.meta.ensured).toBe(false);
+    expect(r.meta.fallback).toBe(true);
+    expect(r.meta.fallback_reason).toBe("ensure_failed");
+  });
+
+  it("errors without ensure when leader_ensure false, dead, fallback false", async () => {
+    const ensure = vi.fn();
+    const r = await prepareLeader(
+      {
+        ...baseConfig,
+        use_leader: true,
+        leader_ensure: false,
+        leader_fallback: false,
+      },
+      undefined,
+      {
+        probe: async () => ({ alive: false, pid: null }),
+        ensure,
+        env: { HOME: "/h" },
+      },
+    );
+    expect(ensure).not.toHaveBeenCalled();
+    expect(r.cli.use).toBe(false);
+    expect(r.meta.fallback_reason).toBe("ensure_failed");
+    expect(r.error).toEqual(
+      expect.objectContaining({ code: "GROK_EXIT_NONZERO" }),
+    );
   });
 
   it("falls back when ensure fails and fallback true", async () => {
@@ -188,5 +271,116 @@ describe("prepareLeader", () => {
     expect(r.error).toEqual(
       expect.objectContaining({ code: "GROK_EXIT_NONZERO" }),
     );
+  });
+});
+
+describe("defaultEnsureLeader", () => {
+  it("spawns detached with leader args, env, and unrefs on success", async () => {
+    const child = fakeChild();
+    const spawnFn = vi.fn(() => child);
+    const env = { HOME: "/h", PATH: "/bin", CUSTOM: "1" };
+
+    const r = await defaultEnsureLeader({
+      bin: "/usr/bin/grok",
+      socket: "/tmp/leader.sock",
+      spawnFn: spawnFn as typeof import("node:child_process").spawn,
+      env,
+    });
+
+    expect(r).toEqual({ ok: true });
+    expect(spawnFn).toHaveBeenCalledWith(
+      "/usr/bin/grok",
+      [
+        "agent",
+        "leader",
+        "--no-exit-on-disconnect",
+        "--leader-socket",
+        "/tmp/leader.sock",
+      ],
+      expect.objectContaining({
+        detached: true,
+        stdio: "ignore",
+        env,
+      }),
+    );
+    expect(child.unref).toHaveBeenCalled();
+  });
+
+  it("returns ok:false when child emits error (e.g. missing binary)", async () => {
+    const child = fakeChild();
+    const spawnFn = vi.fn(() => {
+      queueMicrotask(() => {
+        child.emit("error", new Error("spawn ENOENT"));
+      });
+      return child;
+    });
+
+    const r = await defaultEnsureLeader({
+      bin: "/missing/grok",
+      socket: "/tmp/leader.sock",
+      spawnFn: spawnFn as typeof import("node:child_process").spawn,
+    });
+
+    expect(r).toEqual({ ok: false, message: "spawn ENOENT" });
+    expect(child.unref).not.toHaveBeenCalled();
+  });
+});
+
+describe("shouldFallbackAfterLeaderRun", () => {
+  const usedMeta: LeaderMeta = {
+    requested: true,
+    used: true,
+    mode: "shared",
+    socket: "/tmp/l.sock",
+    ensured: false,
+    fallback: false,
+    fallback_reason: null,
+  };
+
+  it("is true when leader was used and fallback enabled", () => {
+    expect(
+      shouldFallbackAfterLeaderRun(usedMeta, {
+        ...baseConfig,
+        leader_fallback: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("is false when leader was not used", () => {
+    expect(
+      shouldFallbackAfterLeaderRun(
+        { ...usedMeta, used: false },
+        { ...baseConfig, leader_fallback: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when fallback disabled", () => {
+    expect(
+      shouldFallbackAfterLeaderRun(usedMeta, {
+        ...baseConfig,
+        leader_fallback: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("markLeaderRunFallback", () => {
+  it("sets run_failed and clears used", () => {
+    const meta: LeaderMeta = {
+      requested: true,
+      used: true,
+      mode: "shared",
+      socket: "/tmp/l.sock",
+      ensured: true,
+      fallback: false,
+      fallback_reason: null,
+    };
+    const next = markLeaderRunFallback(meta);
+    expect(next.used).toBe(false);
+    expect(next.fallback).toBe(true);
+    expect(next.fallback_reason).toBe("run_failed");
+    expect(next.ensured).toBe(true);
+    expect(next.socket).toBe("/tmp/l.sock");
   });
 });
