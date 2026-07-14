@@ -16,7 +16,7 @@ import {
   type GrokImagineArgs,
 } from "./tools/imagine.js";
 import { handleGrokRun, type GrokRunArgs } from "./tools/run.js";
-import { handleSetup } from "./tools/setup.js";
+import { handleSetup, type SetupArgs } from "./tools/setup.js";
 import {
   handleGrokXSearch,
   type GrokXSearchArgs,
@@ -47,13 +47,18 @@ const TOOLS = [
   {
     name: "grok_setup",
     description:
-      "Diagnose local Grok CLI: binary path, version, and login health. No business side effects.",
+      "Diagnose local Grok CLI: binary path, version, login health, and leader status. Read-only by default; pass ensure=true to start leader if down.",
     inputSchema: {
       type: "object" as const,
       properties: {
         fix: {
           type: "boolean",
           description: "Reserved for future auto-fix hints; currently ignored",
+        },
+        ensure: {
+          type: "boolean",
+          description:
+            "If true, try to start local grok leader when socket is down (default false)",
         },
       },
     },
@@ -218,6 +223,18 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+function asBoolean(v: unknown): boolean | undefined {
+  return typeof v === "boolean" ? v : undefined;
+}
+
+function parseSetupArgs(raw: Record<string, unknown> | undefined): SetupArgs {
+  const args = raw ?? {};
+  return {
+    fix: asBoolean(args.fix),
+    ensure: asBoolean(args.ensure),
+  };
+}
+
 function asNumber(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
@@ -314,7 +331,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const rawArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
 
   if (name === "grok_setup") {
-    const env = await handleSetup(rawArgs);
+    const env = await handleSetup(parseSetupArgs(rawArgs));
     return textResult(env);
   }
 
