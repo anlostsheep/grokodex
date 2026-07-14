@@ -145,6 +145,11 @@ const TOOLS = [
           type: "string",
           description: "Optional Grok model override",
         },
+        use_leader: {
+          type: "boolean",
+          description:
+            "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+        },
       },
       required: ["prompt"],
     },
@@ -193,6 +198,11 @@ const TOOLS = [
         model: {
           type: "string",
           description: "Optional Grok model override",
+        },
+        use_leader: {
+          type: "boolean",
+          description:
+            "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
         },
       },
       required: ["query"],
@@ -259,6 +269,8 @@ function parseGrokImagineArgs(
     cwd: asString(args.cwd),
     timeout_ms: asNumber(args.timeout_ms),
     model: asString(args.model),
+    use_leader:
+      typeof args.use_leader === "boolean" ? args.use_leader : undefined,
   };
 }
 
@@ -286,6 +298,8 @@ function parseGrokXSearchArgs(
     cwd: asString(args.cwd),
     timeout_ms: asNumber(args.timeout_ms),
     model: asString(args.model),
+    use_leader:
+      typeof args.use_leader === "boolean" ? args.use_leader : undefined,
   };
 }
 
@@ -328,6 +342,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const env = await handleGrokImagine(parseGrokImagineArgs(rawArgs), {
       resolveBin: resolveGrokBinary,
       run: runGrok,
+      config,
       env: process.env,
       existsSync,
       whichFn: () =>
@@ -346,6 +361,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const env = await handleGrokXSearch(parseGrokXSearchArgs(rawArgs), {
       resolveBin: resolveGrokBinary,
       run: runGrok,
+      config,
       env: process.env,
       existsSync,
       whichFn: () =>

@@ -1,11 +1,18 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { GrokodexConfig } from "../config.js";
 import { failResult, okResult } from "../errors.js";
 import {
   findInPath,
   resolveGrokBinary,
   type WhichFn,
 } from "../grok-bin.js";
+import {
+  applyLeaderCliFlags,
+  markLeaderRunFallback,
+  prepareLeader,
+  shouldFallbackAfterLeaderRun,
+} from "../leader.js";
 import {
   resolvePermissionForXSearch,
   type ResolvedPermission,
@@ -37,6 +44,8 @@ export interface GrokXSearchArgs {
   cwd?: string;
   timeout_ms?: number;
   model?: string;
+  /** Per-call override for GROKODEX_USE_LEADER. */
+  use_leader?: boolean;
 }
 
 export interface GrokXSearchDeps {
@@ -44,11 +53,13 @@ export interface GrokXSearchDeps {
   /** Defaults to resolvePermissionForXSearch; injectable for tests. */
   resolvePermXSearch?: typeof resolvePermissionForXSearch;
   run: typeof runGrok;
+  config: GrokodexConfig;
   env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
   existsSync?: (p: string) => boolean;
   whichFn?: WhichFn;
   /** Injectable process.cwd */
   getCwd?: () => string;
+  prepareLeader?: typeof prepareLeader;
 }
 
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -370,12 +381,28 @@ export async function handleGrokXSearch(
         ? args.timeout_ms
         : DEFAULT_TIMEOUT_MS;
 
-    const cliArgs = [...perm.cliArgs];
-    if (args.model !== undefined && args.model.trim() !== "") {
-      cliArgs.push("-m", args.model.trim());
+    const prepare = deps.prepareLeader ?? prepareLeader;
+    let leader = await prepare(deps.config, args.use_leader, {
+      env,
+      bin: resolved.path,
+      existsSync: exists,
+    });
+    if (leader.error) {
+      return failResult(
+        "grok_x_search",
+        leader.error.code,
+        leader.error.message,
+        leader.error.hint,
+      );
     }
-    cliArgs.push("-p", fullPrompt);
 
+    const baseCliArgs = [...perm.cliArgs];
+    if (args.model !== undefined && args.model.trim() !== "") {
+      baseCliArgs.push("-m", args.model.trim());
+    }
+    baseCliArgs.push("-p", fullPrompt);
+
+    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
     const runReq: RunGrokRequest = {
       bin: resolved.path,
       args: cliArgs,
@@ -384,7 +411,24 @@ export async function handleGrokXSearch(
       env: perm.env,
     };
 
-    const result: RunGrokResult = await deps.run(runReq);
+    let result: RunGrokResult = await deps.run(runReq);
+
+    // One-shot retry when leader-path run fails and config allows fallback.
+    if (
+      !result.timedOut &&
+      result.code !== 0 &&
+      shouldFallbackAfterLeaderRun(leader.meta, deps.config)
+    ) {
+      leader = {
+        cli: { use: false, socket: leader.meta.socket },
+        meta: markLeaderRunFallback(leader.meta),
+      };
+      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      result = await deps.run({
+        ...runReq,
+        args: retryArgs,
+      });
+    }
 
     if (result.timedOut) {
       return failWithPermission(
@@ -440,6 +484,7 @@ export async function handleGrokXSearch(
         usernames,
         model: args.model,
         exit_code: result.code,
+        leader: leader.meta,
       },
     });
   } catch (err) {

@@ -5,9 +5,21 @@ import {
   extractImagePaths,
   handleGrokImagine,
 } from "../src/tools/imagine.js";
+import type { GrokodexConfig } from "../src/config.js";
+import type { PrepareLeaderResult } from "../src/leader.js";
 import type { ResolvedPermission } from "../src/permission.js";
 import type { RunGrokResult } from "../src/runner.js";
 import type { ResolveGrokResult } from "../src/grok-bin.js";
+
+const baseConfig: GrokodexConfig = {
+  default_permission: "restricted",
+  allow_inherit: true,
+  allow_full_access_inherit: true,
+  use_leader: false,
+  leader_isolate: false,
+  leader_fallback: true,
+  leader_ensure: true,
+};
 
 const imaginePerm: ResolvedPermission = {
   ok: true,
@@ -28,11 +40,45 @@ const imaginePerm: ResolvedPermission = {
   ],
 };
 
+const leaderOff: PrepareLeaderResult = {
+  cli: { use: false, socket: null },
+  meta: {
+    requested: false,
+    used: false,
+    mode: "off",
+    socket: null,
+    ensured: false,
+    fallback: false,
+    fallback_reason: null,
+  },
+};
+
+const leaderUsed: PrepareLeaderResult = {
+  cli: { use: true, socket: "/tmp/l.sock" },
+  meta: {
+    requested: true,
+    used: true,
+    mode: "shared",
+    socket: "/tmp/l.sock",
+    ensured: false,
+    fallback: false,
+    fallback_reason: null,
+  },
+};
+
 function mockDeps(overrides: {
   resolveBin?: () => ResolveGrokResult | Promise<ResolveGrokResult>;
   resolvePermImagine?: () => ResolvedPermission;
   run?: () => RunGrokResult | Promise<RunGrokResult>;
   getCwd?: () => string;
+  config?: GrokodexConfig;
+  prepareLeader?: (
+    ...args: Parameters<
+      NonNullable<
+        import("../src/tools/imagine.js").GrokImagineDeps["prepareLeader"]
+      >
+    >
+  ) => PrepareLeaderResult | Promise<PrepareLeaderResult>;
 } = {}) {
   return {
     resolveBin: vi.fn(
@@ -57,6 +103,10 @@ function mockDeps(overrides: {
           }) satisfies RunGrokResult),
     ),
     getCwd: overrides.getCwd ?? (() => "/tmp/work"),
+    config: overrides.config ?? baseConfig,
+    prepareLeader: vi.fn(
+      overrides.prepareLeader ?? (async () => leaderOff),
+    ),
   };
 }
 
@@ -296,6 +346,29 @@ describe("handleGrokImagine", () => {
     if (!env.ok) {
       expect(env.error.code).toBe("TIMEOUT");
       expect(env.tool).toBe("grok_imagine");
+    }
+  });
+
+  it("injects --leader when prepareLeader says use", async () => {
+    const deps = mockDeps({
+      config: {
+        ...baseConfig,
+        use_leader: true,
+        leader_ensure: false,
+      },
+      prepareLeader: async () => leaderUsed,
+    });
+    const env = await handleGrokImagine(
+      { prompt: "a red fox", use_leader: true },
+      deps,
+    );
+    expect(env.ok).toBe(true);
+    const runReq = deps.run.mock.calls[0]![0];
+    expect(runReq.args).toContain("--leader");
+    expect(runReq.args).toContain("--leader-socket");
+    expect(runReq.args).toContain("/tmp/l.sock");
+    if (env.ok) {
+      expect(env.meta?.leader).toMatchObject({ used: true, requested: true });
     }
   });
 });
