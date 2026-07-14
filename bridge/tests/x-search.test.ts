@@ -229,19 +229,56 @@ describe("handleGrokXSearch", () => {
     const runReq = deps.run.mock.calls[0]![0];
     expect(runReq.bin).toBe("/opt/grok");
     expect(runReq.cwd).toBe("/tmp/work");
-    expect(runReq.timeoutMs).toBe(180_000);
+    expect(runReq.timeoutMs).toBe(90_000);
     expect(runReq.args).toContain("--output-format");
     expect(runReq.args).toContain("--disallowed-tools");
     expect(runReq.args).toContain("--deny");
     expect(runReq.args).not.toContain("--always-approve");
+    expect(runReq.args[runReq.args.indexOf("--max-turns") + 1]).toBe("5");
+    expect(runReq.args[runReq.args.indexOf("--tools") + 1]).toBe("x_search");
+    const dis = String(
+      runReq.args[runReq.args.indexOf("--disallowed-tools") + 1],
+    );
+    expect(dis.split(",").map((s) => s.trim())).toEqual(
+      expect.arrayContaining(["Agent"]),
+    );
 
     const pIdx = runReq.args.indexOf("-p");
     expect(pIdx).toBeGreaterThanOrEqual(0);
     const fullPrompt = runReq.args[pIdx + 1] as string;
     expect(fullPrompt).toMatch(/ONLY use X\/Twitter search/i);
+    expect(fullPrompt).toMatch(/use web_search/i);
     expect(fullPrompt).toContain("Search mode: semantic");
     expect(fullPrompt).toContain("Return at most 5 results");
     expect(fullPrompt).toContain("grok updates");
+  });
+
+  it("meta includes max_turns and tools_allowlist", async () => {
+    const deps = mockDeps();
+    const env = await handleGrokXSearch({ query: "mars" }, deps);
+    expect(env.ok).toBe(true);
+    if (!env.ok) return;
+    expect(env.meta?.max_turns).toBe(5);
+    expect(env.meta?.tools_allowlist).toEqual(["x_search"]);
+  });
+
+  it("timeout_ms arg overrides config default", async () => {
+    const deps = mockDeps();
+    await handleGrokXSearch(
+      { query: "q", timeout_ms: 12_000 },
+      deps,
+    );
+    const runReq = deps.run.mock.calls[0]![0];
+    expect(runReq.timeoutMs).toBe(12_000);
+  });
+
+  it("config x_search_max_turns overrides default turns", async () => {
+    const deps = mockDeps({
+      config: { ...baseConfig, x_search_max_turns: 8 },
+    });
+    await handleGrokXSearch({ query: "q" }, deps);
+    const runReq = deps.run.mock.calls[0]![0];
+    expect(runReq.args[runReq.args.indexOf("--max-turns") + 1]).toBe("8");
   });
 
   it("passes keyword mode, limit, dates, usernames into prompt", async () => {

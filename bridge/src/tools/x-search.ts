@@ -14,6 +14,10 @@ import {
   shouldFallbackAfterLeaderRun,
 } from "../leader.js";
 import {
+  applyNarrowCliArgs,
+  parseToolsAllowlist,
+} from "../narrow-cli.js";
+import {
   resolvePermissionForXSearch,
   type ResolvedPermission,
 } from "../permission.js";
@@ -62,7 +66,6 @@ export interface GrokXSearchDeps {
   prepareLeader?: typeof prepareLeader;
 }
 
-const DEFAULT_TIMEOUT_MS = 180_000;
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 50;
 const STDERR_TRUNCATE = 2000;
@@ -85,6 +88,8 @@ export function buildXSearchPrompt(opts: {
     "You are running inside Grokodex. ONLY use X/Twitter search-related capabilities.",
     "Do not edit source code, write files, or modify the repository.",
     "Do not run shell commands that change the workspace.",
+    "Complete in as few turns as possible. Do not explore the repo or use web_search.",
+    "Do not spawn subagents. Prefer a single X search tool call then JSON results.",
     "",
     `Search mode: ${mode}`,
     `Return at most ${limit} results.`,
@@ -379,7 +384,13 @@ export async function handleGrokXSearch(
     const timeoutMs =
       typeof args.timeout_ms === "number" && args.timeout_ms > 0
         ? args.timeout_ms
-        : DEFAULT_TIMEOUT_MS;
+        : deps.config.x_search_timeout_ms;
+
+    const toolsAllowlist = parseToolsAllowlist(deps.config.x_search_tools);
+    const narrowMeta = {
+      max_turns: deps.config.x_search_max_turns,
+      tools_allowlist: toolsAllowlist,
+    };
 
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, args.use_leader, {
@@ -402,7 +413,12 @@ export async function handleGrokXSearch(
     }
     baseCliArgs.push("-p", fullPrompt);
 
-    const cliArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+    // Short path: low max-turns + allowlist. Leader fallback keeps the same narrow args.
+    const narrowArgs = applyNarrowCliArgs(baseCliArgs, {
+      maxTurns: deps.config.x_search_max_turns,
+      toolsCsv: deps.config.x_search_tools,
+    });
+    const cliArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
     const runReq: RunGrokRequest = {
       bin: resolved.path,
       args: cliArgs,
@@ -423,7 +439,7 @@ export async function handleGrokXSearch(
         cli: { use: false, socket: leader.meta.socket },
         meta: markLeaderRunFallback(leader.meta),
       };
-      const retryArgs = applyLeaderCliFlags(baseCliArgs, leader.cli);
+      const retryArgs = applyLeaderCliFlags(narrowArgs, leader.cli);
       result = await deps.run({
         ...runReq,
         args: retryArgs,
@@ -434,7 +450,7 @@ export async function handleGrokXSearch(
       return failWithPermission(
         "TIMEOUT",
         `grok timed out after ${timeoutMs}ms`,
-        "Increase timeout_ms or narrow the query; default is 180000ms",
+        "Increase timeout_ms or narrow the query; default short-path timeout is 90000ms",
         perm.audit,
       );
     }
@@ -485,6 +501,7 @@ export async function handleGrokXSearch(
         model: args.model,
         exit_code: result.code,
         leader: leader.meta,
+        ...narrowMeta,
       },
     });
   } catch (err) {
