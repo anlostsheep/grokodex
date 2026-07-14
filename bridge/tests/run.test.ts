@@ -9,6 +9,10 @@ const baseConfig: GrokodexConfig = {
   default_permission: "restricted",
   allow_inherit: true,
   allow_full_access_inherit: true,
+  use_leader: false,
+  leader_isolate: false,
+  leader_fallback: true,
+  leader_ensure: true,
 };
 
 const restrictedPerm: ResolvedPermission = {

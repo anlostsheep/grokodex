@@ -77,4 +77,28 @@ describe("loadConfig", () => {
     const c = loadConfig({ GROKODEX_DEFAULT_PERMISSION: "full" });
     expect(c.default_permission).toBe("restricted");
   });
+
+  it("defaults leader flags off with safe fallbacks", () => {
+    const c = loadConfig({});
+    expect(c.use_leader).toBe(false);
+    expect(c.leader_socket).toBeUndefined();
+    expect(c.leader_isolate).toBe(false);
+    expect(c.leader_fallback).toBe(true);
+    expect(c.leader_ensure).toBe(true);
+  });
+
+  it("parses GROKODEX leader env vars", () => {
+    const c = loadConfig({
+      GROKODEX_USE_LEADER: "1",
+      GROKODEX_LEADER_SOCKET: " /tmp/custom.sock ",
+      GROKODEX_LEADER_ISOLATE: "true",
+      GROKODEX_LEADER_FALLBACK: "0",
+      GROKODEX_LEADER_ENSURE: "no",
+    });
+    expect(c.use_leader).toBe(true);
+    expect(c.leader_socket).toBe("/tmp/custom.sock");
+    expect(c.leader_isolate).toBe(true);
+    expect(c.leader_fallback).toBe(false);
+    expect(c.leader_ensure).toBe(false);
+  });
 });
