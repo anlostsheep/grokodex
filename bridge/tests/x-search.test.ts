@@ -25,6 +25,7 @@ const xSearchPerm: ResolvedPermission = {
   audit: {
     requested: "restricted",
     effective: "restricted-x-search",
+    host_sandbox: null,
     codex_sandbox: null,
     source: "default",
     notes: [

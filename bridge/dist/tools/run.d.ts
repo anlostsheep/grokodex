@@ -3,12 +3,16 @@ import { resolveGrokBinary, type WhichFn } from "../grok-bin.js";
 import { prepareLeader } from "../leader.js";
 import { resolvePermission } from "../permission.js";
 import { runGrok } from "../runner.js";
-import type { CodexApproval, CodexSandbox, PermissionMode, ToolEnvelope } from "../types.js";
+import type { CodexApproval, HostSandbox, PermissionMode, ToolEnvelope } from "../types.js";
 export interface GrokRunArgs {
     prompt: string;
     cwd?: string;
     permission_mode?: PermissionMode;
-    codex_sandbox?: CodexSandbox;
+    /** Canonical host capability band when permission_mode=inherit. */
+    host_sandbox?: HostSandbox;
+    /** Compat alias of host_sandbox. */
+    codex_sandbox?: HostSandbox;
+    host_approval?: CodexApproval;
     codex_approval?: CodexApproval;
     model?: string;
     max_turns?: number;
@@ -17,6 +21,18 @@ export interface GrokRunArgs {
     /** Per-call override for GROKODEX_USE_LEADER. */
     use_leader?: boolean;
 }
+/**
+ * Merge GROKODEX_HOST_SANDBOX + GROKODEX_CODEX_SANDBOX env signals.
+ * Both set and unequal → conflict.
+ */
+export declare function parseSandboxEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>): {
+    ok: true;
+    sandbox: HostSandbox | null;
+} | {
+    ok: false;
+    message: string;
+    hint: string;
+};
 export interface GrokRunDeps {
     resolveBin: typeof resolveGrokBinary;
     resolvePerm: typeof resolvePermission;

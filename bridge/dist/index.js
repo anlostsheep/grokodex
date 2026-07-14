@@ -41,7 +41,7 @@ const TOOLS = [
     },
     {
         name: "grok_run",
-        description: "Run a headless local Grok agent task (restricted by default; optional inherit with Codex sandbox signal).",
+        description: "Run a headless local Grok agent task (restricted by default; optional inherit with host sandbox signal).",
         inputSchema: {
             type: "object",
             properties: {
@@ -58,15 +58,25 @@ const TOOLS = [
                     enum: ["restricted", "inherit"],
                     description: "Permission mode (default restricted)",
                 },
+                host_sandbox: {
+                    type: "string",
+                    enum: ["read-only", "workspace-write", "danger-full-access"],
+                    description: "Host capability band when permission_mode=inherit (preferred over codex_sandbox)",
+                },
                 codex_sandbox: {
                     type: "string",
                     enum: ["read-only", "workspace-write", "danger-full-access"],
-                    description: "Codex sandbox signal used when permission_mode=inherit",
+                    description: "Deprecated alias of host_sandbox; must not disagree with host_sandbox",
+                },
+                host_approval: {
+                    type: "string",
+                    enum: ["untrusted", "on-failure", "on-request", "never"],
+                    description: "Optional host approval policy signal",
                 },
                 codex_approval: {
                     type: "string",
                     enum: ["untrusted", "on-failure", "on-request", "never"],
-                    description: "Optional Codex approval policy signal",
+                    description: "Deprecated alias of host_approval; optional host approval policy signal",
                 },
                 model: {
                     type: "string",
@@ -224,7 +234,9 @@ function parseGrokRunArgs(raw) {
         prompt: asString(args.prompt) ?? "",
         cwd: asString(args.cwd),
         permission_mode: asPermissionMode(args.permission_mode),
+        host_sandbox: asCodexSandbox(args.host_sandbox),
         codex_sandbox: asCodexSandbox(args.codex_sandbox),
+        host_approval: asCodexApproval(args.host_approval),
         codex_approval: asCodexApproval(args.codex_approval),
         model: asString(args.model),
         max_turns: asNumber(args.max_turns),

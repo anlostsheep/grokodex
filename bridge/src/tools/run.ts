@@ -14,6 +14,7 @@ import {
   shouldFallbackAfterLeaderRun,
 } from "../leader.js";
 import {
+  resolveCallerSandbox,
   resolvePermission,
   type ResolvedPermission,
 } from "../permission.js";
@@ -25,7 +26,7 @@ import {
 } from "../runner.js";
 import type {
   CodexApproval,
-  CodexSandbox,
+  HostSandbox,
   PermissionMode,
   ToolEnvelope,
 } from "../types.js";
@@ -34,7 +35,11 @@ export interface GrokRunArgs {
   prompt: string;
   cwd?: string;
   permission_mode?: PermissionMode;
-  codex_sandbox?: CodexSandbox;
+  /** Canonical host capability band when permission_mode=inherit. */
+  host_sandbox?: HostSandbox;
+  /** Compat alias of host_sandbox. */
+  codex_sandbox?: HostSandbox;
+  host_approval?: CodexApproval;
   codex_approval?: CodexApproval;
   model?: string;
   max_turns?: number;
@@ -42,6 +47,35 @@ export interface GrokRunArgs {
   extra_rules?: string;
   /** Per-call override for GROKODEX_USE_LEADER. */
   use_leader?: boolean;
+}
+
+function parseSandboxValue(raw: string | undefined): HostSandbox | null {
+  return raw === "read-only" ||
+    raw === "workspace-write" ||
+    raw === "danger-full-access"
+    ? raw
+    : null;
+}
+
+/**
+ * Merge GROKODEX_HOST_SANDBOX + GROKODEX_CODEX_SANDBOX env signals.
+ * Both set and unequal → conflict.
+ */
+export function parseSandboxEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
+):
+  | { ok: true; sandbox: HostSandbox | null }
+  | { ok: false; message: string; hint: string } {
+  const h = parseSandboxValue(env.GROKODEX_HOST_SANDBOX?.trim());
+  const c = parseSandboxValue(env.GROKODEX_CODEX_SANDBOX?.trim());
+  if (h != null && c != null && h !== c) {
+    return {
+      ok: false,
+      message: "GROKODEX_HOST_SANDBOX and GROKODEX_CODEX_SANDBOX disagree",
+      hint: "Set only GROKODEX_HOST_SANDBOX (preferred) or make both equal",
+    };
+  }
+  return { ok: true, sandbox: h ?? c };
 }
 
 export interface GrokRunDeps {
@@ -165,21 +199,36 @@ export async function handleGrokRun(
     const mode: PermissionMode =
       normalized.permission_mode ?? deps.config.default_permission;
 
-    const envSandboxRaw = env.GROKODEX_CODEX_SANDBOX?.trim();
-    const envSandbox: CodexSandbox | null =
-      envSandboxRaw === "read-only" ||
-      envSandboxRaw === "workspace-write" ||
-      envSandboxRaw === "danger-full-access"
-        ? envSandboxRaw
-        : null;
+    const callerSb = resolveCallerSandbox({
+      host_sandbox: normalized.host_sandbox,
+      codex_sandbox: normalized.codex_sandbox,
+    });
+    if (!callerSb.ok) {
+      return failResult(
+        "grok_run",
+        "INVALID_ARGS",
+        callerSb.message,
+        callerSb.hint,
+      );
+    }
+
+    const envSb = parseSandboxEnv(env);
+    if (!envSb.ok) {
+      return failResult(
+        "grok_run",
+        "INVALID_ARGS",
+        envSb.message,
+        envSb.hint,
+      );
+    }
 
     const perm = deps.resolvePerm({
       mode,
-      codex_sandbox: normalized.codex_sandbox,
-      codex_approval: normalized.codex_approval,
+      host_sandbox: callerSb.sandbox,
+      codex_approval: normalized.host_approval ?? normalized.codex_approval,
       allow_inherit: deps.config.allow_inherit,
       allow_full_access_inherit: deps.config.allow_full_access_inherit,
-      envSandbox,
+      envSandbox: envSb.sandbox,
     });
 
     if (!perm.ok) {

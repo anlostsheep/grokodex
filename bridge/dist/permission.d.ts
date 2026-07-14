@@ -1,13 +1,17 @@
-import type { CodexApproval, CodexSandbox, PermissionAudit, PermissionMode } from "./types.js";
+import type { CodexApproval, HostSandbox, PermissionAudit, PermissionMode } from "./types.js";
 export interface PermissionInput {
     mode: PermissionMode;
-    codex_sandbox?: CodexSandbox | null;
+    /** Canonical caller sandbox. */
+    host_sandbox?: HostSandbox | null;
+    /** Compat alias for host_sandbox. */
+    codex_sandbox?: HostSandbox | null;
+    host_approval?: CodexApproval | null;
     codex_approval?: CodexApproval | null;
     allow_inherit: boolean;
     allow_full_access_inherit: boolean;
     /** optional injected static config */
-    configSandbox?: CodexSandbox | null;
-    envSandbox?: CodexSandbox | null;
+    configSandbox?: HostSandbox | null;
+    envSandbox?: HostSandbox | null;
 }
 export type ResolvedPermission = {
     ok: true;
@@ -23,8 +27,25 @@ export type ResolvedPermission = {
     message: string;
     hint?: string;
 };
+export type CallerSandboxResult = {
+    ok: true;
+    sandbox: HostSandbox | null;
+} | {
+    ok: false;
+    code: "SANDBOX_CONFLICT";
+    message: string;
+    hint: string;
+};
 /**
- * Map restricted / inherit (+ Codex sandbox) to Grok CLI flags.
+ * Merge host_sandbox + codex_sandbox at one layer.
+ * Both set and unequal → conflict.
+ */
+export declare function resolveCallerSandbox(args: {
+    host_sandbox?: HostSandbox | null;
+    codex_sandbox?: HostSandbox | null;
+}): CallerSandboxResult;
+/**
+ * Map restricted / inherit (+ host sandbox) to Grok CLI flags.
  * Calibrated against local `grok --help` (`--deny`, `--always-approve`,
  * `--disallowed-tools`, `--output-format`, `--max-turns`).
  */

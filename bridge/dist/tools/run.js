@@ -3,7 +3,31 @@ import { join } from "node:path";
 import { failResult, okResult } from "../errors.js";
 import { findInPath, } from "../grok-bin.js";
 import { applyLeaderCliFlags, markLeaderRunFallback, prepareLeader, shouldFallbackAfterLeaderRun, } from "../leader.js";
+import { resolveCallerSandbox, } from "../permission.js";
 import { parseGrokJsonOutput, } from "../runner.js";
+function parseSandboxValue(raw) {
+    return raw === "read-only" ||
+        raw === "workspace-write" ||
+        raw === "danger-full-access"
+        ? raw
+        : null;
+}
+/**
+ * Merge GROKODEX_HOST_SANDBOX + GROKODEX_CODEX_SANDBOX env signals.
+ * Both set and unequal → conflict.
+ */
+export function parseSandboxEnv(env) {
+    const h = parseSandboxValue(env.GROKODEX_HOST_SANDBOX?.trim());
+    const c = parseSandboxValue(env.GROKODEX_CODEX_SANDBOX?.trim());
+    if (h != null && c != null && h !== c) {
+        return {
+            ok: false,
+            message: "GROKODEX_HOST_SANDBOX and GROKODEX_CODEX_SANDBOX disagree",
+            hint: "Set only GROKODEX_HOST_SANDBOX (preferred) or make both equal",
+        };
+    }
+    return { ok: true, sandbox: h ?? c };
+}
 const DEFAULT_TIMEOUT_MS = 600_000;
 const STDERR_TRUNCATE = 2000;
 function defaultWhich(env) {
@@ -70,19 +94,24 @@ export async function handleGrokRun(args, deps) {
             return failResult("grok_run", resolved.error, resolved.message, "Install the Grok CLI, ensure `grok` is on PATH, or set GROK_PATH");
         }
         const mode = normalized.permission_mode ?? deps.config.default_permission;
-        const envSandboxRaw = env.GROKODEX_CODEX_SANDBOX?.trim();
-        const envSandbox = envSandboxRaw === "read-only" ||
-            envSandboxRaw === "workspace-write" ||
-            envSandboxRaw === "danger-full-access"
-            ? envSandboxRaw
-            : null;
+        const callerSb = resolveCallerSandbox({
+            host_sandbox: normalized.host_sandbox,
+            codex_sandbox: normalized.codex_sandbox,
+        });
+        if (!callerSb.ok) {
+            return failResult("grok_run", "INVALID_ARGS", callerSb.message, callerSb.hint);
+        }
+        const envSb = parseSandboxEnv(env);
+        if (!envSb.ok) {
+            return failResult("grok_run", "INVALID_ARGS", envSb.message, envSb.hint);
+        }
         const perm = deps.resolvePerm({
             mode,
-            codex_sandbox: normalized.codex_sandbox,
-            codex_approval: normalized.codex_approval,
+            host_sandbox: callerSb.sandbox,
+            codex_approval: normalized.host_approval ?? normalized.codex_approval,
             allow_inherit: deps.config.allow_inherit,
             allow_full_access_inherit: deps.config.allow_full_access_inherit,
-            envSandbox,
+            envSandbox: envSb.sandbox,
         });
         if (!perm.ok) {
             return failWithPermission(perm.code, perm.message, perm.hint, perm.audit);

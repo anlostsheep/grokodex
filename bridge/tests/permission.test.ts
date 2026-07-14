@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   resolvePermission,
+  resolveCallerSandbox,
   type PermissionInput,
 } from "../src/permission.js";
 
@@ -40,6 +41,7 @@ describe("resolvePermission", () => {
     if (!r.ok) return;
     expect(r.audit.requested).toBe("restricted");
     expect(r.audit.effective).toMatch(/restricted/i);
+    expect(r.audit.host_sandbox).toBeNull();
     expect(r.audit.codex_sandbox).toBeNull();
     expect(r.audit.source).toBe("default");
     expect(hasAlwaysApproveOrYolo(r.cliArgs)).toBe(false);
@@ -55,7 +57,9 @@ describe("resolvePermission", () => {
     expect(r.code).toBe("INHERIT_UNAVAILABLE");
     expect(r.audit.requested).toBe("inherit");
     expect(r.audit.source).toBe("unavailable");
+    expect(r.audit.host_sandbox).toBeNull();
     expect(r.audit.codex_sandbox).toBeNull();
+    expect(r.hint ?? "").toMatch(/host_sandbox/i);
   });
 
   it("mode=inherit, codex_sandbox=read-only: disallow edit tools or equivalent deny", () => {
@@ -64,6 +68,7 @@ describe("resolvePermission", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    expect(r.audit.host_sandbox).toBe("read-only");
     expect(r.audit.codex_sandbox).toBe("read-only");
     expect(r.audit.source).toBe("caller_args");
     expect(r.audit.effective).toMatch(/read-only|readonly|read_only/i);
@@ -98,6 +103,7 @@ describe("resolvePermission", () => {
     expect(restricted.ok).toBe(true);
     if (!r.ok || !restricted.ok) return;
 
+    expect(r.audit.host_sandbox).toBe("workspace-write");
     expect(r.audit.codex_sandbox).toBe("workspace-write");
     expect(r.audit.source).toBe("caller_args");
     expect(hasAlwaysApproveOrYolo(r.cliArgs)).toBe(false);
@@ -118,14 +124,13 @@ describe("resolvePermission", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    expect(r.audit.host_sandbox).toBe("danger-full-access");
     expect(r.audit.codex_sandbox).toBe("danger-full-access");
     expect(r.audit.effective).toMatch(/full|danger/i);
     expect(hasAlwaysApproveOrYolo(r.cliArgs)).toBe(true);
     expect(
       r.audit.notes.some((n) => /full/i.test(n)),
     ).toBe(true);
-    // Absolute deny may still be present by design
-    // (not required, but if present should not include yolo elsewhere)
   });
 
   it("mode=inherit, danger-full-access + allow_full false → PERMISSION_DENIED", () => {
@@ -139,6 +144,7 @@ describe("resolvePermission", () => {
     if (r.ok) return;
     expect(r.code).toBe("PERMISSION_DENIED");
     expect(r.audit.requested).toBe("inherit");
+    expect(r.audit.host_sandbox).toBe("danger-full-access");
     expect(r.audit.codex_sandbox).toBe("danger-full-access");
   });
 
@@ -165,6 +171,7 @@ describe("resolvePermission", () => {
     );
     expect(callerWins.ok).toBe(true);
     if (callerWins.ok) {
+      expect(callerWins.audit.host_sandbox).toBe("read-only");
       expect(callerWins.audit.codex_sandbox).toBe("read-only");
       expect(callerWins.audit.source).toBe("caller_args");
     }
@@ -178,6 +185,7 @@ describe("resolvePermission", () => {
     );
     expect(envWins.ok).toBe(true);
     if (envWins.ok) {
+      expect(envWins.audit.host_sandbox).toBe("workspace-write");
       expect(envWins.audit.codex_sandbox).toBe("workspace-write");
       expect(envWins.audit.source).toBe("env");
     }
@@ -189,8 +197,73 @@ describe("resolvePermission", () => {
     );
     expect(configWins.ok).toBe(true);
     if (configWins.ok) {
+      expect(configWins.audit.host_sandbox).toBe("read-only");
       expect(configWins.audit.codex_sandbox).toBe("read-only");
       expect(configWins.audit.source).toBe("config_toml");
     }
+  });
+});
+
+describe("host_sandbox neutral contract", () => {
+  it("accepts host_sandbox alone (same as codex_sandbox)", () => {
+    const r = resolvePermission(
+      baseInherit({ host_sandbox: "workspace-write" }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.audit.host_sandbox).toBe("workspace-write");
+    expect(r.audit.codex_sandbox).toBe("workspace-write");
+    expect(r.audit.source).toBe("caller_args");
+  });
+
+  it("accepts codex_sandbox alone (compat)", () => {
+    const r = resolvePermission(
+      baseInherit({ codex_sandbox: "read-only" }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.audit.host_sandbox).toBe("read-only");
+    expect(r.audit.codex_sandbox).toBe("read-only");
+  });
+
+  it("same host_sandbox and codex_sandbox → ok", () => {
+    const r = resolvePermission(
+      baseInherit({
+        host_sandbox: "danger-full-access",
+        codex_sandbox: "danger-full-access",
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.audit.host_sandbox).toBe("danger-full-access");
+    expect(r.audit.codex_sandbox).toBe("danger-full-access");
+  });
+
+  it("prefer host_sandbox when both equal via resolveCallerSandbox", () => {
+    const merged = resolveCallerSandbox({
+      host_sandbox: "workspace-write",
+      codex_sandbox: "workspace-write",
+    });
+    expect(merged.ok).toBe(true);
+    if (!merged.ok) return;
+    expect(merged.sandbox).toBe("workspace-write");
+  });
+
+  it("resolveCallerSandbox: conflicting host vs codex → conflict", () => {
+    const r = resolveCallerSandbox({
+      host_sandbox: "read-only",
+      codex_sandbox: "workspace-write",
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("SANDBOX_CONFLICT");
+  });
+
+  it("INHERIT_UNAVAILABLE hint mentions host_sandbox", () => {
+    const r = resolvePermission(baseInherit());
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("INHERIT_UNAVAILABLE");
+    expect(r.hint ?? "").toMatch(/host_sandbox/i);
   });
 });

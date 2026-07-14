@@ -8,8 +8,24 @@ export type ErrorCode =
   | "INHERIT_UNAVAILABLE";
 
 export type PermissionMode = "restricted" | "inherit";
-export type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access";
-export type CodexApproval = "untrusted" | "on-failure" | "on-request" | "never";
+
+/** Host capability band for permission_mode=inherit (Codex/Claude/etc.). */
+export type HostSandbox =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
+
+/** @deprecated Prefer HostSandbox; kept as alias for callers and audit mirror. */
+export type CodexSandbox = HostSandbox;
+
+export type HostApproval =
+  | "untrusted"
+  | "on-failure"
+  | "on-request"
+  | "never";
+
+/** @deprecated Prefer HostApproval. */
+export type CodexApproval = HostApproval;
 
 export type ToolName =
   | "grok_run"
@@ -20,7 +36,13 @@ export type ToolName =
 export interface PermissionAudit {
   requested: PermissionMode;
   effective: string;
-  codex_sandbox: CodexSandbox | null;
+  /** Canonical host capability band used for inherit mapping. */
+  host_sandbox: HostSandbox | null;
+  /**
+   * Mirror of host_sandbox for backward-compatible consumers.
+   * Prefer reading host_sandbox.
+   */
+  codex_sandbox: HostSandbox | null;
   source: "default" | "caller_args" | "env" | "config_toml" | "unavailable";
   notes: string[];
 }

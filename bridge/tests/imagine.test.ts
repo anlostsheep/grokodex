@@ -26,6 +26,7 @@ const imaginePerm: ResolvedPermission = {
   audit: {
     requested: "restricted",
     effective: "restricted-imagine",
+    host_sandbox: null,
     codex_sandbox: null,
     source: "default",
     notes: ["Imagine never inherits full shell; write narrowed to save_dir."],

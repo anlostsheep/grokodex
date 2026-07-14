@@ -15542,6 +15542,22 @@ function findInPath(name, env = process.env, existsSync8, pathJoin, pathDelimite
 }
 
 // bridge/src/permission.ts
+function resolveCallerSandbox(args) {
+  const h = args.host_sandbox ?? null;
+  const c = args.codex_sandbox ?? null;
+  if (h != null && c != null && h !== c) {
+    return {
+      ok: false,
+      code: "SANDBOX_CONFLICT",
+      message: "host_sandbox and codex_sandbox disagree; pass only one or make them equal",
+      hint: "Use host_sandbox (preferred) or codex_sandbox (compat), not conflicting values"
+    };
+  }
+  return { ok: true, sandbox: h ?? c };
+}
+function auditSandboxFields(sandbox) {
+  return { host_sandbox: sandbox, codex_sandbox: sandbox };
+}
 var BASE_CLI_ARGS = ["--output-format", "json", "--max-turns", "30"];
 var RESTRICTED_DENY_RULES = [
   "Bash(rm -rf*)",
@@ -15582,8 +15598,9 @@ function buildFullAccessCliArgs() {
   return args;
 }
 function resolveSandboxSource(input) {
-  if (input.codex_sandbox != null) {
-    return { sandbox: input.codex_sandbox, source: "caller_args" };
+  const caller = input.host_sandbox ?? input.codex_sandbox ?? null;
+  if (caller != null) {
+    return { sandbox: caller, source: "caller_args" };
   }
   if (input.envSandbox != null) {
     return { sandbox: input.envSandbox, source: "env" };
@@ -15604,7 +15621,7 @@ function resolvePermission(input) {
     const audit2 = {
       requested: "restricted",
       effective: "restricted",
-      codex_sandbox: null,
+      ...auditSandboxFields(null),
       source: "default",
       notes: [
         "Default restricted: workspace-level write with high-risk shell denies; always-approve off."
@@ -15613,10 +15630,11 @@ function resolvePermission(input) {
     return ok(audit2, buildRestrictedCliArgs());
   }
   if (!input.allow_inherit) {
+    const caller = input.host_sandbox ?? input.codex_sandbox ?? null;
     const audit2 = {
       requested: "inherit",
       effective: "denied",
-      codex_sandbox: input.codex_sandbox ?? null,
+      ...auditSandboxFields(caller),
       source: "default",
       notes: ["inherit disabled by GROKODEX_ALLOW_INHERIT / allow_inherit=false"]
     };
@@ -15632,27 +15650,27 @@ function resolvePermission(input) {
     const audit2 = {
       requested: "inherit",
       effective: "unavailable",
-      codex_sandbox: null,
+      ...auditSandboxFields(null),
       source: "unavailable",
       notes: [
-        "No codex_sandbox from caller, env, or config.toml; refuse silent full upgrade."
+        "No host_sandbox from caller, env, or config; refuse silent full upgrade."
       ]
     };
     return fail(
       audit2,
       "INHERIT_UNAVAILABLE",
-      "inherit requested but Codex sandbox could not be determined",
-      "Pass codex_sandbox (read-only | workspace-write | danger-full-access) or use restricted"
+      "inherit requested but host sandbox could not be determined",
+      "Pass host_sandbox (read-only | workspace-write | danger-full-access) or use restricted"
     );
   }
   if (sandbox === "read-only") {
     const audit2 = {
       requested: "inherit",
       effective: "read-only",
-      codex_sandbox: sandbox,
+      ...auditSandboxFields(sandbox),
       source,
       notes: [
-        "Mapped Codex read-only \u2192 disallowed edit/write tools + restricted shell denies."
+        "Mapped host read-only \u2192 disallowed edit/write tools + restricted shell denies."
       ]
     };
     return ok(audit2, buildReadOnlyCliArgs());
@@ -15661,10 +15679,10 @@ function resolvePermission(input) {
     const audit2 = {
       requested: "inherit",
       effective: "restricted",
-      codex_sandbox: sandbox,
+      ...auditSandboxFields(sandbox),
       source,
       notes: [
-        "Mapped Codex workspace-write \u2192 same capability level as restricted."
+        "Mapped host workspace-write \u2192 same capability level as restricted."
       ]
     };
     return ok(audit2, buildRestrictedCliArgs());
@@ -15673,7 +15691,7 @@ function resolvePermission(input) {
     const audit2 = {
       requested: "inherit",
       effective: "denied",
-      codex_sandbox: sandbox,
+      ...auditSandboxFields(sandbox),
       source,
       notes: [
         "danger-full-access blocked by GROKODEX_ALLOW_FULL_ACCESS_INHERIT / allow_full_access_inherit=false"
@@ -15689,11 +15707,11 @@ function resolvePermission(input) {
   const audit = {
     requested: "inherit",
     effective: "danger-full-access",
-    codex_sandbox: sandbox,
+    ...auditSandboxFields(sandbox),
     source,
     notes: [
       "Full-access inherit: --always-approve enabled; absolute deny list retained.",
-      "Capability approximation of Codex danger-full-access \u2014 not a shared OS sandbox token."
+      "Capability approximation of host danger-full-access \u2014 not a shared OS sandbox token."
     ]
   };
   return ok(audit, buildFullAccessCliArgs());
@@ -15702,7 +15720,7 @@ function resolvePermissionForImagine() {
   const audit = {
     requested: "restricted",
     effective: "restricted-imagine",
-    codex_sandbox: null,
+    ...auditSandboxFields(null),
     source: "default",
     notes: [
       "Imagine never inherits full shell; write narrowed to save_dir in tool layer."
@@ -15714,7 +15732,7 @@ function resolvePermissionForXSearch() {
   const audit = {
     requested: "restricted",
     effective: "restricted-x-search",
-    codex_sandbox: null,
+    ...auditSandboxFields(null),
     source: "default",
     notes: [
       "X search never inherits full shell; edit/write tools disallowed; search-only via prompt."
@@ -16512,6 +16530,21 @@ async function handleGrokImagine(args, deps) {
 // bridge/src/tools/run.ts
 import { existsSync as existsSync3 } from "node:fs";
 import { join as join3 } from "node:path";
+function parseSandboxValue(raw) {
+  return raw === "read-only" || raw === "workspace-write" || raw === "danger-full-access" ? raw : null;
+}
+function parseSandboxEnv(env) {
+  const h = parseSandboxValue(env.GROKODEX_HOST_SANDBOX?.trim());
+  const c = parseSandboxValue(env.GROKODEX_CODEX_SANDBOX?.trim());
+  if (h != null && c != null && h !== c) {
+    return {
+      ok: false,
+      message: "GROKODEX_HOST_SANDBOX and GROKODEX_CODEX_SANDBOX disagree",
+      hint: "Set only GROKODEX_HOST_SANDBOX (preferred) or make both equal"
+    };
+  }
+  return { ok: true, sandbox: h ?? c };
+}
 var DEFAULT_TIMEOUT_MS2 = 6e5;
 var STDERR_TRUNCATE2 = 2e3;
 function defaultWhich2(env) {
@@ -16589,15 +16622,34 @@ async function handleGrokRun(args, deps) {
       );
     }
     const mode = normalized.permission_mode ?? deps.config.default_permission;
-    const envSandboxRaw = env.GROKODEX_CODEX_SANDBOX?.trim();
-    const envSandbox = envSandboxRaw === "read-only" || envSandboxRaw === "workspace-write" || envSandboxRaw === "danger-full-access" ? envSandboxRaw : null;
+    const callerSb = resolveCallerSandbox({
+      host_sandbox: normalized.host_sandbox,
+      codex_sandbox: normalized.codex_sandbox
+    });
+    if (!callerSb.ok) {
+      return failResult(
+        "grok_run",
+        "INVALID_ARGS",
+        callerSb.message,
+        callerSb.hint
+      );
+    }
+    const envSb = parseSandboxEnv(env);
+    if (!envSb.ok) {
+      return failResult(
+        "grok_run",
+        "INVALID_ARGS",
+        envSb.message,
+        envSb.hint
+      );
+    }
     const perm = deps.resolvePerm({
       mode,
-      codex_sandbox: normalized.codex_sandbox,
-      codex_approval: normalized.codex_approval,
+      host_sandbox: callerSb.sandbox,
+      codex_approval: normalized.host_approval ?? normalized.codex_approval,
       allow_inherit: deps.config.allow_inherit,
       allow_full_access_inherit: deps.config.allow_full_access_inherit,
-      envSandbox
+      envSandbox: envSb.sandbox
     });
     if (!perm.ok) {
       return failWithPermission2(perm.code, perm.message, perm.hint, perm.audit);
@@ -17279,7 +17331,7 @@ var TOOLS = [
   },
   {
     name: "grok_run",
-    description: "Run a headless local Grok agent task (restricted by default; optional inherit with Codex sandbox signal).",
+    description: "Run a headless local Grok agent task (restricted by default; optional inherit with host sandbox signal).",
     inputSchema: {
       type: "object",
       properties: {
@@ -17296,15 +17348,25 @@ var TOOLS = [
           enum: ["restricted", "inherit"],
           description: "Permission mode (default restricted)"
         },
+        host_sandbox: {
+          type: "string",
+          enum: ["read-only", "workspace-write", "danger-full-access"],
+          description: "Host capability band when permission_mode=inherit (preferred over codex_sandbox)"
+        },
         codex_sandbox: {
           type: "string",
           enum: ["read-only", "workspace-write", "danger-full-access"],
-          description: "Codex sandbox signal used when permission_mode=inherit"
+          description: "Deprecated alias of host_sandbox; must not disagree with host_sandbox"
+        },
+        host_approval: {
+          type: "string",
+          enum: ["untrusted", "on-failure", "on-request", "never"],
+          description: "Optional host approval policy signal"
         },
         codex_approval: {
           type: "string",
           enum: ["untrusted", "on-failure", "on-request", "never"],
-          description: "Optional Codex approval policy signal"
+          description: "Deprecated alias of host_approval; optional host approval policy signal"
         },
         model: {
           type: "string",
@@ -17455,7 +17517,9 @@ function parseGrokRunArgs(raw) {
     prompt: asString(args.prompt) ?? "",
     cwd: asString(args.cwd),
     permission_mode: asPermissionMode(args.permission_mode),
+    host_sandbox: asCodexSandbox(args.host_sandbox),
     codex_sandbox: asCodexSandbox(args.codex_sandbox),
+    host_approval: asCodexApproval(args.host_approval),
     codex_approval: asCodexApproval(args.codex_approval),
     model: asString(args.model),
     max_turns: asNumber(args.max_turns),

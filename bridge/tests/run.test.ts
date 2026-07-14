@@ -21,6 +21,7 @@ const restrictedPerm: ResolvedPermission = {
   audit: {
     requested: "restricted",
     effective: "restricted",
+    host_sandbox: null,
     codex_sandbox: null,
     source: "default",
     notes: ["test restricted"],
@@ -74,6 +75,7 @@ function mockDeps(overrides: {
     | (() => RunGrokResult | Promise<RunGrokResult>)
     | ReturnType<typeof vi.fn>;
   config?: GrokodexConfig;
+  env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
   prepareLeader?: (
     ...args: Parameters<
       NonNullable<import("../src/tools/run.js").GrokRunDeps["prepareLeader"]>
@@ -97,6 +99,7 @@ function mockDeps(overrides: {
           }) satisfies RunGrokResult),
     ),
     config: overrides.config ?? baseConfig,
+    env: overrides.env,
     prepareLeader: vi.fn(
       overrides.prepareLeader ?? (async () => leaderOff),
     ),
@@ -147,13 +150,14 @@ describe("handleGrokRun", () => {
         audit: {
           requested: "inherit",
           effective: "unavailable",
+          host_sandbox: null,
           codex_sandbox: null,
           source: "unavailable",
           notes: ["no sandbox"],
         },
         code: "INHERIT_UNAVAILABLE",
-        message: "inherit requested but Codex sandbox could not be determined",
-        hint: "Pass codex_sandbox",
+        message: "inherit requested but host sandbox could not be determined",
+        hint: "Pass host_sandbox",
       }),
     });
 
@@ -261,7 +265,7 @@ describe("handleGrokRun", () => {
     }
   });
 
-  it("passes permission_mode inherit and codex_sandbox into resolvePerm", async () => {
+  it("passes permission_mode inherit and codex_sandbox into resolvePerm as host_sandbox", async () => {
     const deps = mockDeps({});
     await handleGrokRun(
       {
@@ -276,12 +280,67 @@ describe("handleGrokRun", () => {
     expect(deps.resolvePerm).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "inherit",
-        codex_sandbox: "workspace-write",
+        host_sandbox: "workspace-write",
         codex_approval: "never",
         allow_inherit: true,
         allow_full_access_inherit: true,
       }),
     );
+  });
+
+  it("passes host_sandbox into resolvePerm as host_sandbox", async () => {
+    const deps = mockDeps({});
+    await handleGrokRun(
+      {
+        prompt: "hi",
+        permission_mode: "inherit",
+        host_sandbox: "workspace-write",
+      },
+      deps,
+    );
+    expect(deps.resolvePerm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host_sandbox: "workspace-write",
+      }),
+    );
+  });
+
+  it("conflicting host_sandbox and codex_sandbox → INVALID_ARGS", async () => {
+    const deps = mockDeps({});
+    const env = await handleGrokRun(
+      {
+        prompt: "hi",
+        permission_mode: "inherit",
+        host_sandbox: "read-only",
+        codex_sandbox: "workspace-write",
+      },
+      deps,
+    );
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("INVALID_ARGS");
+      expect(env.error.message).toMatch(/disagree|conflict/i);
+    }
+    expect(deps.resolvePerm).not.toHaveBeenCalled();
+    expect(deps.run).not.toHaveBeenCalled();
+  });
+
+  it("GROKODEX_HOST_SANDBOX and GROKODEX_CODEX_SANDBOX conflict → INVALID_ARGS", async () => {
+    const deps = mockDeps({
+      env: {
+        GROKODEX_HOST_SANDBOX: "read-only",
+        GROKODEX_CODEX_SANDBOX: "workspace-write",
+      },
+    });
+    const env = await handleGrokRun(
+      { prompt: "hi", permission_mode: "inherit" },
+      deps,
+    );
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("INVALID_ARGS");
+    }
+    expect(deps.resolvePerm).not.toHaveBeenCalled();
   });
 
   it("does not pass --leader when use_leader is false", async () => {
