@@ -176,6 +176,18 @@ MCP 子进程通常拿不到当前 Codex 会话 live sandbox：
 
 不配置任何变量也应能按默认工作。
 
+### Leader-backed headless (opt-in)
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `GROKODEX_USE_LEADER` | `false` | Use `--leader` for warm backend |
+| `GROKODEX_LEADER_SOCKET` | Grok default | Custom socket path |
+| `GROKODEX_LEADER_ISOLATE` | `false` | Dedicated `grokodex-leader.sock` |
+| `GROKODEX_LEADER_FALLBACK` | `true` | Fall back to one-shot on leader failure |
+| `GROKODEX_LEADER_ENSURE` | `true` | Spawn leader if socket missing |
+
+Does not change conversation continuity (no auto `--resume`). See design spec 2026-07-14.
+
 > **警告：** Full-Access / `danger-full-access` inherit 费用与破坏力都更高。仅在用户明确要求时使用。
 
 ---

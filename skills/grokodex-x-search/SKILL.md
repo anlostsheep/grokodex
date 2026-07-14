@@ -89,6 +89,13 @@ Failure (`ok: false`):
 - Do not invent posts that are not in `results` or `text`.
 - If empty / unparsed, say so and offer a tighter query.
 
+## Performance note
+
+When the host enables `GROKODEX_USE_LEADER=1`, the bridge may attach headless
+calls to a shared Grok leader process (warm MCP/skills). You do not need to
+pass leader args. Inspect `meta.leader` if debugging slowness or fallbacks.
+This does **not** resume prior chat sessions.
+
 ## Hard rules
 
 - Prefer MCP `grok_x_search` only.

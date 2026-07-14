@@ -87,6 +87,15 @@ Confirm readiness briefly (path + version + auth). Point the user to:
 - `grokodex-imagine` → image generation
 - `grokodex-x-search` → X/Twitter search
 
+## Leader (optional warm backend)
+
+- `grok_setup` reports whether a local Grok **leader** socket is alive.
+- To enable leader-backed headless (faster repeat calls): set env
+  `GROKODEX_USE_LEADER=1` on the MCP server process.
+- Optional: `ensure: true` on `grok_setup` may start `grok agent leader`
+  (side effect). Default setup is read-only.
+- Do **not** shell out to manage leader as a bypass of MCP tools for tasks.
+
 ## Hard rules
 
 - Prefer MCP `grok_setup` over ad-hoc shell probes.

@@ -68,6 +68,13 @@ Failure (`ok: false`):
 - If `artifacts` is missing but `ok` is true, say generation may have succeeded and point to `meta.save_dir` + raw `text`.
 - Do not claim a local image exists if neither artifacts nor a clear path in `text` is present.
 
+## Performance note
+
+When the host enables `GROKODEX_USE_LEADER=1`, the bridge may attach headless
+calls to a shared Grok leader process (warm MCP/skills). You do not need to
+pass leader args. Inspect `meta.leader` if debugging slowness or fallbacks.
+This does **not** resume prior chat sessions.
+
 ## Hard rules
 
 - Prefer MCP `grok_imagine` only.
