@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { handleGrokRun } from "../src/tools/run.js";
 import type { GrokodexConfig } from "../src/config.js";
+import type { PrepareLeaderResult } from "../src/leader.js";
 import type { ResolvedPermission } from "../src/permission.js";
 import type { RunGrokResult } from "../src/runner.js";
 import type { ResolveGrokResult } from "../src/grok-bin.js";
@@ -27,11 +28,57 @@ const restrictedPerm: ResolvedPermission = {
   cliArgs: ["--output-format", "json", "--max-turns", "30", "--deny", "Bash(sudo*)"],
 };
 
+const leaderOff: PrepareLeaderResult = {
+  cli: { use: false, socket: null },
+  meta: {
+    requested: false,
+    used: false,
+    mode: "off",
+    socket: null,
+    ensured: false,
+    fallback: false,
+    fallback_reason: null,
+  },
+};
+
+const leaderUsed: PrepareLeaderResult = {
+  cli: { use: true, socket: "/tmp/l.sock" },
+  meta: {
+    requested: true,
+    used: true,
+    mode: "shared",
+    socket: "/tmp/l.sock",
+    ensured: false,
+    fallback: false,
+    fallback_reason: null,
+  },
+};
+
+const leaderEnsureFallback: PrepareLeaderResult = {
+  cli: { use: false, socket: "/tmp/l.sock" },
+  meta: {
+    requested: true,
+    used: false,
+    mode: "shared",
+    socket: "/tmp/l.sock",
+    ensured: false,
+    fallback: true,
+    fallback_reason: "ensure_failed",
+  },
+};
+
 function mockDeps(overrides: {
   resolveBin?: () => ResolveGrokResult | Promise<ResolveGrokResult>;
   resolvePerm?: () => ResolvedPermission;
-  run?: () => RunGrokResult | Promise<RunGrokResult>;
+  run?:
+    | (() => RunGrokResult | Promise<RunGrokResult>)
+    | ReturnType<typeof vi.fn>;
   config?: GrokodexConfig;
+  prepareLeader?: (
+    ...args: Parameters<
+      NonNullable<import("../src/tools/run.js").GrokRunDeps["prepareLeader"]>
+    >
+  ) => PrepareLeaderResult | Promise<PrepareLeaderResult>;
 }) {
   return {
     resolveBin: vi.fn(
@@ -50,6 +97,9 @@ function mockDeps(overrides: {
           }) satisfies RunGrokResult),
     ),
     config: overrides.config ?? baseConfig,
+    prepareLeader: vi.fn(
+      overrides.prepareLeader ?? (async () => leaderOff),
+    ),
   };
 }
 
@@ -232,5 +282,89 @@ describe("handleGrokRun", () => {
         allow_full_access_inherit: true,
       }),
     );
+  });
+
+  it("does not pass --leader when use_leader is false", async () => {
+    const deps = mockDeps({});
+    await handleGrokRun({ prompt: "hi" }, deps);
+    const runReq = deps.run.mock.calls[0]![0];
+    expect(runReq.args).not.toContain("--leader");
+    expect(deps.prepareLeader).toHaveBeenCalled();
+  });
+
+  it("passes --leader when prepareLeader returns use:true", async () => {
+    const deps = mockDeps({
+      config: {
+        ...baseConfig,
+        use_leader: true,
+        leader_ensure: false,
+      },
+      prepareLeader: async () => leaderUsed,
+    });
+    const env = await handleGrokRun({ prompt: "hi" }, deps);
+    expect(env.ok).toBe(true);
+    const runReq = deps.run.mock.calls[0]![0];
+    expect(runReq.args).toContain("--leader");
+    expect(runReq.args).toContain("--leader-socket");
+    expect(runReq.args).toContain("/tmp/l.sock");
+    if (env.ok) {
+      expect(env.meta?.leader).toMatchObject({ used: true, requested: true });
+    }
+  });
+
+  it("falls back to one-shot and sets meta.leader.fallback", async () => {
+    const deps = mockDeps({
+      config: { ...baseConfig, use_leader: true, leader_fallback: true },
+      prepareLeader: async () => leaderEnsureFallback,
+    });
+    const env = await handleGrokRun({ prompt: "hi" }, deps);
+    expect(env.ok).toBe(true);
+    const runReq = deps.run.mock.calls[0]![0];
+    expect(runReq.args).not.toContain("--leader");
+    if (env.ok) {
+      expect(env.meta?.leader).toMatchObject({
+        fallback: true,
+        fallback_reason: "ensure_failed",
+      });
+    }
+  });
+
+  it("retries without leader when first run fails and leader was used", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({
+        code: 1,
+        stdout: "",
+        stderr: "leader connection closed",
+        timedOut: false,
+        durationMs: 5,
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        stdout: JSON.stringify({ text: "recovered", session_id: "s2" }),
+        stderr: "",
+        timedOut: false,
+        durationMs: 9,
+      });
+    const deps = mockDeps({
+      run,
+      config: { ...baseConfig, use_leader: true, leader_fallback: true },
+      prepareLeader: async () => leaderUsed,
+    });
+    const env = await handleGrokRun({ prompt: "hi" }, deps);
+    expect(env.ok).toBe(true);
+    expect(run).toHaveBeenCalledTimes(2);
+    const firstArgs = run.mock.calls[0]![0].args;
+    expect(firstArgs).toContain("--leader");
+    const secondArgs = run.mock.calls[1]![0].args;
+    expect(secondArgs).not.toContain("--leader");
+    if (env.ok) {
+      expect(env.text).toBe("recovered");
+      expect(env.meta?.leader).toMatchObject({
+        used: false,
+        fallback: true,
+        fallback_reason: "run_failed",
+      });
+    }
   });
 });

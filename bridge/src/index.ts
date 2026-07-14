@@ -104,6 +104,11 @@ const TOOLS = [
           type: "string",
           description: "Additional rules appended to the prompt",
         },
+        use_leader: {
+          type: "boolean",
+          description:
+            "Override GROKODEX_USE_LEADER for this call (default: env/config, off by default)",
+        },
       },
       required: ["prompt"],
     },
@@ -238,6 +243,8 @@ function parseGrokRunArgs(raw: Record<string, unknown> | undefined): GrokRunArgs
     max_turns: asNumber(args.max_turns),
     timeout_ms: asNumber(args.timeout_ms),
     extra_rules: asString(args.extra_rules),
+    use_leader:
+      typeof args.use_leader === "boolean" ? args.use_leader : undefined,
   };
 }
 
