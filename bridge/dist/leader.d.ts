@@ -1,6 +1,10 @@
 import { type ChildProcess, type SpawnOptions } from "node:child_process";
 import type { GrokodexConfig } from "./config.js";
 import type { ErrorCode, LeaderMeta, LeaderMode } from "./types.js";
+/** Default total time to wait for leader socket after spawn (ms). */
+export declare const DEFAULT_ENSURE_TIMEOUT_MS = 8000;
+/** Default poll interval while waiting for leader readiness (ms). */
+export declare const DEFAULT_ENSURE_POLL_MS = 100;
 export interface LeaderPlan {
     requested: boolean;
     mode: LeaderMode;
@@ -45,9 +49,23 @@ export interface LeaderDeps {
     bin?: string;
     existsSync?: (p: string) => boolean;
     spawn?: LeaderSpawnFn;
-    /** Wait after spawn before re-probe (ms). */
+    /**
+     * Max time to wait for leader readiness after spawn (ms).
+     * Default 8000. Legacy alias: `ensureWaitMs` (same meaning).
+     * Set 0 for a single immediate re-probe (unit tests).
+     */
+    ensureTimeoutMs?: number;
+    /**
+     * @deprecated Use ensureTimeoutMs. Kept for tests/callers; same as ensureTimeoutMs.
+     */
     ensureWaitMs?: number;
+    /** Poll interval while waiting for readiness (ms). Default 100. */
+    ensurePollMs?: number;
     sleep?: (ms: number) => Promise<void>;
+    /** Override connect probe (tests). Default: real TCP/UDS connect. */
+    tryConnect?: (socket: string, timeoutMs: number) => Promise<boolean>;
+    /** Clock for readiness wait (tests). Default Date.now. */
+    now?: () => number;
 }
 export declare function defaultLeaderSocketPath(env: NodeJS.ProcessEnv | Record<string, string | undefined>, isolate: boolean): string;
 /**
@@ -56,8 +74,27 @@ export declare function defaultLeaderSocketPath(env: NodeJS.ProcessEnv | Record<
  */
 export declare function resolveLeaderPlan(config: GrokodexConfig, useLeaderOverride: boolean | undefined, env?: NodeJS.ProcessEnv | Record<string, string | undefined>): LeaderPlan;
 export declare function applyLeaderCliFlags(args: string[], choice: LeaderCliChoice): string[];
-/** Default probe: socket path exists (Unix domain socket file present). */
-export declare function defaultProbeLeader(socket: string, exists?: (p: string) => boolean): Promise<LeaderProbeResult>;
+/**
+ * Try connecting to a Unix domain socket. Succeeds only if a listener accepts.
+ * Rejects stale socket files left after a dead leader.
+ */
+export declare function defaultTryConnect(socketPath: string, timeoutMs?: number): Promise<boolean>;
+/**
+ * Default probe: path exists AND a short connect succeeds (filters stale socks).
+ * When `exists` is injected for tests without `tryConnect`, existence alone is used.
+ */
+export declare function defaultProbeLeader(socket: string, exists?: (p: string) => boolean, tryConnect?: (path: string, timeoutMs: number) => Promise<boolean>): Promise<LeaderProbeResult>;
+/**
+ * Poll probe until alive or timeout.
+ * timeoutMs=0 → single probe, no sleep.
+ */
+export declare function waitUntilLeaderReady(socket: string, probe: ProbeFn, opts: {
+    timeoutMs: number;
+    pollMs: number;
+    sleep: (ms: number) => Promise<void>;
+    /** Injectable clock so unit tests can advance time via sleep mock. */
+    now?: () => number;
+}): Promise<LeaderProbeResult>;
 /**
  * Detached spawn: `grok agent leader --no-exit-on-disconnect [--leader-socket PATH]`
  * Does not wait for exit. Caller should re-probe after a short wait.

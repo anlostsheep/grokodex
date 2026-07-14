@@ -15872,9 +15872,13 @@ import { basename, isAbsolute, join as join2, resolve } from "node:path";
 
 // bridge/src/leader.ts
 import { existsSync } from "node:fs";
+import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+var DEFAULT_ENSURE_TIMEOUT_MS = 8e3;
+var DEFAULT_ENSURE_POLL_MS = 100;
+var CONNECT_PROBE_TIMEOUT_MS = 200;
 function envHome(env) {
   const h = env.HOME?.trim() || env.USERPROFILE?.trim();
   return h || homedir();
@@ -15927,11 +15931,54 @@ function metaOff(partial2) {
     ...partial2
   };
 }
-async function defaultProbeLeader(socket, exists = existsSync) {
+function defaultTryConnect(socketPath, timeoutMs = CONNECT_PROBE_TIMEOUT_MS) {
+  return new Promise((resolve2) => {
+    let settled = false;
+    const finish = (ok2) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve2(ok2);
+    };
+    const socket = createConnection(socketPath);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
+async function defaultProbeLeader(socket, exists = existsSync, tryConnect = defaultTryConnect) {
   if (!socket || !exists(socket)) {
     return { alive: false, pid: null };
   }
+  const ok2 = await tryConnect(socket, CONNECT_PROBE_TIMEOUT_MS);
+  if (!ok2) {
+    return { alive: false, pid: null };
+  }
   return { alive: true, pid: null };
+}
+function parsePositiveInt(raw, fallback) {
+  if (raw === void 0 || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
+}
+async function waitUntilLeaderReady(socket, probe, opts) {
+  const now = opts.now ?? Date.now;
+  let last = await probe(socket);
+  if (last.alive || opts.timeoutMs <= 0) {
+    return last;
+  }
+  const deadline = now() + opts.timeoutMs;
+  const poll = Math.max(1, opts.pollMs);
+  while (now() < deadline) {
+    const remaining = deadline - now();
+    await opts.sleep(Math.min(poll, Math.max(1, remaining)));
+    last = await probe(socket);
+    if (last.alive) return last;
+  }
+  return last;
 }
 var SPAWN_ERROR_WINDOW_MS = 50;
 async function defaultEnsureLeader(args) {
@@ -16021,7 +16068,12 @@ async function prepareLeader(config3, useLeaderOverride, deps = {}) {
       meta: metaOff({ requested: false, mode: "off" })
     };
   }
-  const probe = deps.probe ?? ((socket) => defaultProbeLeader(socket, deps.existsSync ?? existsSync));
+  const tryConnect = deps.tryConnect ?? defaultTryConnect;
+  const probe = deps.probe ?? ((socket) => defaultProbeLeader(
+    socket,
+    deps.existsSync ?? existsSync,
+    tryConnect
+  ));
   const ensure = deps.ensure ?? (async ({ bin, socket }) => defaultEnsureLeader({
     bin,
     socket,
@@ -16029,7 +16081,14 @@ async function prepareLeader(config3, useLeaderOverride, deps = {}) {
     env
   }));
   const sleep = deps.sleep ?? defaultSleep;
-  const ensureWaitMs = deps.ensureWaitMs ?? 400;
+  const ensureTimeoutMs = deps.ensureTimeoutMs ?? deps.ensureWaitMs ?? parsePositiveInt(
+    env.GROKODEX_LEADER_ENSURE_TIMEOUT_MS,
+    DEFAULT_ENSURE_TIMEOUT_MS
+  );
+  const ensurePollMs = deps.ensurePollMs ?? parsePositiveInt(
+    env.GROKODEX_LEADER_ENSURE_POLL_MS,
+    DEFAULT_ENSURE_POLL_MS
+  );
   let ensured = false;
   let probeResult = await probe(plan.socket);
   if (!probeResult.alive && plan.ensure) {
@@ -16052,8 +16111,12 @@ async function prepareLeader(config3, useLeaderOverride, deps = {}) {
       );
     }
     ensured = true;
-    await sleep(ensureWaitMs);
-    probeResult = await probe(plan.socket);
+    probeResult = await waitUntilLeaderReady(plan.socket, probe, {
+      timeoutMs: ensureTimeoutMs,
+      pollMs: ensurePollMs,
+      sleep,
+      now: deps.now
+    });
   }
   if (!probeResult.alive) {
     if (plan.fallback) {
@@ -16757,16 +16820,24 @@ function leaderHint(config3, probe) {
 }
 async function collectLeaderStatus(config3, env, bin, wantEnsure, deps) {
   const socket = resolveSetupSocket(config3, env);
-  const probe = deps.probeLeader ?? ((s) => defaultProbeLeader(s, deps.existsSync ?? existsSync5));
+  const probe = deps.probeLeader ?? ((s) => defaultProbeLeader(
+    s,
+    deps.existsSync ?? existsSync5,
+    defaultTryConnect
+  ));
   const ensure = deps.ensureLeader ?? (async ({ bin: b, socket: sock }) => defaultEnsureLeader({ bin: b, socket: sock, env }));
   const sleep = deps.sleep ?? defaultSleep2;
-  const ensureWaitMs = deps.ensureWaitMs ?? 400;
+  const ensureTimeoutMs = deps.ensureTimeoutMs ?? deps.ensureWaitMs ?? DEFAULT_ENSURE_TIMEOUT_MS;
+  const ensurePollMs = deps.ensurePollMs ?? DEFAULT_ENSURE_POLL_MS;
   let result = await probe(socket);
   if (wantEnsure && !result.alive) {
     const ensured = await ensure({ bin, socket });
     if (ensured.ok) {
-      await sleep(ensureWaitMs);
-      result = await probe(socket);
+      result = await waitUntilLeaderReady(socket, probe, {
+        timeoutMs: ensureTimeoutMs,
+        pollMs: ensurePollMs,
+        sleep
+      });
     }
   }
   return {

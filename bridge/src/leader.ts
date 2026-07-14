@@ -1,9 +1,17 @@
 import { existsSync } from "node:fs";
+import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import type { GrokodexConfig } from "./config.js";
 import type { ErrorCode, LeaderMeta, LeaderMode } from "./types.js";
+
+/** Default total time to wait for leader socket after spawn (ms). */
+export const DEFAULT_ENSURE_TIMEOUT_MS = 8000;
+/** Default poll interval while waiting for leader readiness (ms). */
+export const DEFAULT_ENSURE_POLL_MS = 100;
+/** Connect probe timeout — rejects stale socket files. */
+const CONNECT_PROBE_TIMEOUT_MS = 200;
 
 export interface LeaderPlan {
   requested: boolean;
@@ -49,9 +57,23 @@ export interface LeaderDeps {
   bin?: string;
   existsSync?: (p: string) => boolean;
   spawn?: LeaderSpawnFn;
-  /** Wait after spawn before re-probe (ms). */
+  /**
+   * Max time to wait for leader readiness after spawn (ms).
+   * Default 8000. Legacy alias: `ensureWaitMs` (same meaning).
+   * Set 0 for a single immediate re-probe (unit tests).
+   */
+  ensureTimeoutMs?: number;
+  /**
+   * @deprecated Use ensureTimeoutMs. Kept for tests/callers; same as ensureTimeoutMs.
+   */
   ensureWaitMs?: number;
+  /** Poll interval while waiting for readiness (ms). Default 100. */
+  ensurePollMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** Override connect probe (tests). Default: real TCP/UDS connect. */
+  tryConnect?: (socket: string, timeoutMs: number) => Promise<boolean>;
+  /** Clock for readiness wait (tests). Default Date.now. */
+  now?: () => number;
 }
 
 function envHome(
@@ -134,16 +156,96 @@ function metaOff(partial?: Partial<LeaderMeta>): LeaderMeta {
   };
 }
 
-/** Default probe: socket path exists (Unix domain socket file present). */
+/**
+ * Try connecting to a Unix domain socket. Succeeds only if a listener accepts.
+ * Rejects stale socket files left after a dead leader.
+ */
+export function defaultTryConnect(
+  socketPath: string,
+  timeoutMs: number = CONNECT_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ok);
+    };
+    const socket = createConnection(socketPath);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
+
+/**
+ * Default probe: path exists AND a short connect succeeds (filters stale socks).
+ * When `exists` is injected for tests without `tryConnect`, existence alone is used.
+ */
 export async function defaultProbeLeader(
   socket: string,
   exists: (p: string) => boolean = existsSync,
+  tryConnect: (
+    path: string,
+    timeoutMs: number,
+  ) => Promise<boolean> = defaultTryConnect,
 ): Promise<LeaderProbeResult> {
   if (!socket || !exists(socket)) {
     return { alive: false, pid: null };
   }
-  // Existence is a cheap heuristic; client attach is source of truth.
+  // If caller injected a custom exists without care for connect, still try connect
+  // (real default). Unit tests that only mock exists should pass tryConnect stub.
+  const ok = await tryConnect(socket, CONNECT_PROBE_TIMEOUT_MS);
+  if (!ok) {
+    return { alive: false, pid: null };
+  }
   return { alive: true, pid: null };
+}
+
+function parsePositiveInt(
+  raw: string | undefined,
+  fallback: number,
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
+}
+
+/**
+ * Poll probe until alive or timeout.
+ * timeoutMs=0 → single probe, no sleep.
+ */
+export async function waitUntilLeaderReady(
+  socket: string,
+  probe: ProbeFn,
+  opts: {
+    timeoutMs: number;
+    pollMs: number;
+    sleep: (ms: number) => Promise<void>;
+    /** Injectable clock so unit tests can advance time via sleep mock. */
+    now?: () => number;
+  },
+): Promise<LeaderProbeResult> {
+  const now = opts.now ?? Date.now;
+  let last = await probe(socket);
+  if (last.alive || opts.timeoutMs <= 0) {
+    return last;
+  }
+
+  const deadline = now() + opts.timeoutMs;
+  const poll = Math.max(1, opts.pollMs);
+
+  while (now() < deadline) {
+    const remaining = deadline - now();
+    await opts.sleep(Math.min(poll, Math.max(1, remaining)));
+    last = await probe(socket);
+    if (last.alive) return last;
+  }
+  return last;
 }
 
 /** How long to wait for a synchronous-ish spawn `error` (e.g. ENOENT) before treating spawn as ok. */
@@ -269,10 +371,15 @@ export async function prepareLeader(
     };
   }
 
+  const tryConnect = deps.tryConnect ?? defaultTryConnect;
   const probe =
     deps.probe ??
     ((socket: string) =>
-      defaultProbeLeader(socket, deps.existsSync ?? existsSync));
+      defaultProbeLeader(
+        socket,
+        deps.existsSync ?? existsSync,
+        tryConnect,
+      ));
   const ensure =
     deps.ensure ??
     (async ({ bin, socket }) =>
@@ -283,7 +390,20 @@ export async function prepareLeader(
         env,
       }));
   const sleep = deps.sleep ?? defaultSleep;
-  const ensureWaitMs = deps.ensureWaitMs ?? 400;
+  // Prefer ensureTimeoutMs; fall back to legacy ensureWaitMs; then env; then default.
+  const ensureTimeoutMs =
+    deps.ensureTimeoutMs ??
+    deps.ensureWaitMs ??
+    parsePositiveInt(
+      env.GROKODEX_LEADER_ENSURE_TIMEOUT_MS,
+      DEFAULT_ENSURE_TIMEOUT_MS,
+    );
+  const ensurePollMs =
+    deps.ensurePollMs ??
+    parsePositiveInt(
+      env.GROKODEX_LEADER_ENSURE_POLL_MS,
+      DEFAULT_ENSURE_POLL_MS,
+    );
 
   let ensured = false;
   let probeResult = await probe(plan.socket);
@@ -310,8 +430,13 @@ export async function prepareLeader(
       );
     }
     ensured = true;
-    await sleep(ensureWaitMs);
-    probeResult = await probe(plan.socket);
+    // Condition-based wait: leader typically needs ~500ms+ for socket (was 400 fixed).
+    probeResult = await waitUntilLeaderReady(plan.socket, probe, {
+      timeoutMs: ensureTimeoutMs,
+      pollMs: ensurePollMs,
+      sleep,
+      now: deps.now,
+    });
   }
 
   // Pre-run unavailability is always ensure_failed (even if ensure spawn "succeeded"

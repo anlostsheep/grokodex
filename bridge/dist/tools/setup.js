@@ -5,7 +5,7 @@ import { failResult, okResult } from "../errors.js";
 import { checkGrokAuth } from "../auth-check.js";
 import { loadConfig } from "../config.js";
 import { findInPath, resolveGrokBinary, } from "../grok-bin.js";
-import { defaultEnsureLeader, defaultLeaderSocketPath, defaultProbeLeader, } from "../leader.js";
+import { DEFAULT_ENSURE_POLL_MS, DEFAULT_ENSURE_TIMEOUT_MS, defaultEnsureLeader, defaultLeaderSocketPath, defaultProbeLeader, defaultTryConnect, waitUntilLeaderReady, } from "../leader.js";
 function defaultRunCmd(bin, args) {
     return new Promise((resolve) => {
         const child = spawn(bin, args, {
@@ -54,17 +54,21 @@ function leaderHint(config, probe) {
 async function collectLeaderStatus(config, env, bin, wantEnsure, deps) {
     const socket = resolveSetupSocket(config, env);
     const probe = deps.probeLeader ??
-        ((s) => defaultProbeLeader(s, deps.existsSync ?? existsSync));
+        ((s) => defaultProbeLeader(s, deps.existsSync ?? existsSync, defaultTryConnect));
     const ensure = deps.ensureLeader ??
         (async ({ bin: b, socket: sock }) => defaultEnsureLeader({ bin: b, socket: sock, env }));
     const sleep = deps.sleep ?? defaultSleep;
-    const ensureWaitMs = deps.ensureWaitMs ?? 400;
+    const ensureTimeoutMs = deps.ensureTimeoutMs ?? deps.ensureWaitMs ?? DEFAULT_ENSURE_TIMEOUT_MS;
+    const ensurePollMs = deps.ensurePollMs ?? DEFAULT_ENSURE_POLL_MS;
     let result = await probe(socket);
     if (wantEnsure && !result.alive) {
         const ensured = await ensure({ bin, socket });
         if (ensured.ok) {
-            await sleep(ensureWaitMs);
-            result = await probe(socket);
+            result = await waitUntilLeaderReady(socket, probe, {
+                timeoutMs: ensureTimeoutMs,
+                pollMs: ensurePollMs,
+                sleep,
+            });
         }
     }
     return {

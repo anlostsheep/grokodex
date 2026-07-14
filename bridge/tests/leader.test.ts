@@ -5,10 +5,12 @@ import {
   applyLeaderCliFlags,
   defaultEnsureLeader,
   defaultLeaderSocketPath,
+  defaultProbeLeader,
   markLeaderRunFallback,
   resolveLeaderPlan,
   prepareLeader,
   shouldFallbackAfterLeaderRun,
+  waitUntilLeaderReady,
 } from "../src/leader.js";
 import type { GrokodexConfig } from "../src/config.js";
 import type { LeaderMeta } from "../src/types.js";
@@ -23,9 +25,10 @@ const baseConfig: GrokodexConfig = {
   leader_ensure: true,
 };
 
-/** Fast ensure path: skip post-spawn wait in unit tests. */
+/** Fast ensure path: single re-probe, no poll sleep (unit tests). */
 const fastEnsureDeps = {
-  ensureWaitMs: 0,
+  ensureTimeoutMs: 0,
+  ensurePollMs: 1,
   sleep: async () => {},
 };
 
@@ -174,6 +177,7 @@ describe("prepareLeader", () => {
       { probe, ensure, env: { HOME: "/h" }, ...fastEnsureDeps },
     );
     expect(ensure).toHaveBeenCalled();
+    // initial probe + one post-ensure probe (timeoutMs=0)
     expect(probe).toHaveBeenCalledTimes(2);
     expect(r.cli.use).toBe(false);
     expect(r.meta.ensured).toBe(true);
@@ -182,6 +186,100 @@ describe("prepareLeader", () => {
     expect(r.error).toBeUndefined();
   });
 
+  it("polls until leader becomes ready after ensure (not fixed 400ms sleep)", async () => {
+    const ensure = vi.fn(async () => ({ ok: true as const }));
+    // 1st: pre-ensure dead; next few post-ensure still dead; then alive
+    const probe = vi
+      .fn()
+      .mockResolvedValueOnce({ alive: false, pid: null })
+      .mockResolvedValueOnce({ alive: false, pid: null })
+      .mockResolvedValueOnce({ alive: false, pid: null })
+      .mockResolvedValueOnce({ alive: false, pid: null })
+      .mockResolvedValueOnce({ alive: true, pid: 42 });
+    let clock = 0;
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms;
+    });
+    const r = await prepareLeader(
+      { ...baseConfig, use_leader: true, leader_ensure: true },
+      undefined,
+      {
+        probe,
+        ensure,
+        env: { HOME: "/h" },
+        ensureTimeoutMs: 1000,
+        ensurePollMs: 50,
+        sleep,
+        now: () => clock,
+      },
+    );
+    expect(r.cli.use).toBe(true);
+    expect(r.meta.used).toBe(true);
+    expect(r.meta.ensured).toBe(true);
+    expect(r.meta.fallback).toBe(false);
+    expect(probe.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(sleep).toHaveBeenCalled();
+  });
+});
+
+describe("waitUntilLeaderReady", () => {
+  it("returns immediately when already alive", async () => {
+    const probe = vi.fn(async () => ({ alive: true, pid: 1 }));
+    const sleep = vi.fn(async () => {});
+    const r = await waitUntilLeaderReady("/tmp/s", probe, {
+      timeoutMs: 1000,
+      pollMs: 50,
+      sleep,
+    });
+    expect(r.alive).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("returns last dead result when timeout is zero", async () => {
+    const probe = vi.fn(async () => ({ alive: false, pid: null }));
+    const sleep = vi.fn(async () => {});
+    const r = await waitUntilLeaderReady("/tmp/s", probe, {
+      timeoutMs: 0,
+      pollMs: 50,
+      sleep,
+    });
+    expect(r.alive).toBe(false);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+
+describe("defaultProbeLeader", () => {
+  it("is dead when path does not exist", async () => {
+    const r = await defaultProbeLeader(
+      "/no/such/sock",
+      () => false,
+      async () => true,
+    );
+    expect(r.alive).toBe(false);
+  });
+
+  it("is dead when path exists but connect fails (stale socket)", async () => {
+    const r = await defaultProbeLeader(
+      "/tmp/stale.sock",
+      () => true,
+      async () => false,
+    );
+    expect(r.alive).toBe(false);
+  });
+
+  it("is alive when path exists and connect succeeds", async () => {
+    const r = await defaultProbeLeader(
+      "/tmp/live.sock",
+      () => true,
+      async () => true,
+    );
+    expect(r.alive).toBe(true);
+  });
+});
+
+describe("prepareLeader (ensure off paths continued)", () => {
   it("does not call ensure when leader_ensure false and probe dead", async () => {
     const ensure = vi.fn();
     const r = await prepareLeader(

@@ -35,8 +35,11 @@ export interface SetupDeps {
     probeLeader?: ProbeFn;
     /** Spawn/ensure leader (defaults to defaultEnsureLeader). */
     ensureLeader?: EnsureFn;
-    /** Wait after ensure before re-probe (ms). */
+    /** Max wait for leader readiness after ensure (ms). Alias: ensureWaitMs. */
+    ensureTimeoutMs?: number;
+    /** @deprecated Use ensureTimeoutMs. */
     ensureWaitMs?: number;
+    ensurePollMs?: number;
     sleep?: (ms: number) => Promise<void>;
 }
 /**
