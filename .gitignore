@@ -9,6 +9,11 @@ node_modules/
 coverage/
 .vitest/
 
+# Local integration-test scratch (Grokodex tools write these into the workspace)
+.grokodex/
+.grokodex-itest*
+.grokodex-itest-*.txt
+
 # Local env / secrets (never commit)
 .env
 .env.*
