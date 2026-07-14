@@ -123,10 +123,12 @@ chmod +x scripts/install-claude-plugin.sh   # 仅首次
 |------|------|------|
 | `grok_setup` | 诊断本机 grok 路径、版本、登录 | 无业务副作用（`ensure=true` 可拉起 leader） |
 | `grok_run` | 通用 headless 委托 | 默认 `restricted`；可显式 `inherit` |
-| `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images` |
-| `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword` |
+| `grok_imagine` | Imagine 生图 | 窄权限 + **短路径** headless；产物默认 `.grokodex/images` |
+| `grok_x_search` | X / Twitter 搜索 | 只读 + **短路径**；`semantic` / `keyword` |
 
 统一返回 JSON 包络：`ok: true|false`；失败带稳定 `error.code` 与可选 `hint`。
+
+`grok_x_search` / `grok_imagine` 使用 **短路径 headless**（tool allowlist + 低 max-turns，默认超时约 90s / 120s）。要延迟更稳：leader 开启、X 搜用 keyword + 日期、小 `limit`。设计见 `docs/superpowers/specs/2026-07-14-grokodex-narrow-tools-perf-design.md`。
 
 ### Skills
 
@@ -178,6 +180,13 @@ MCP 子进程通常拿不到宿主会话 live 权限：
 | `GROKODEX_ALLOW_FULL_ACCESS_INHERIT` | 是否允许 full 级 inherit |
 | `GROKODEX_HOST_SANDBOX` | inherit 时宿主能力档（规范） |
 | `GROKODEX_CODEX_SANDBOX` | 上者的兼容别名 |
+| `GROKODEX_X_SEARCH_MAX_TURNS` | x_search `--max-turns`（默认 `5`） |
+| `GROKODEX_IMAGINE_MAX_TURNS` | imagine `--max-turns`（默认 `4`） |
+| `GROKODEX_X_SEARCH_TOOLS` | x_search `--tools` CSV（默认 `x_search`） |
+| `GROKODEX_IMAGINE_TOOLS` | imagine `--tools` CSV（默认 `image_gen`） |
+| `GROKODEX_X_SEARCH_TIMEOUT_MS` | x_search 默认超时（默认 `90000`） |
+| `GROKODEX_IMAGINE_TIMEOUT_MS` | imagine 默认超时（默认 `120000`） |
+| `GROKODEX_NARROW_TOOLS_STRICT` | 窄路径严格模式（默认 `true`） |
 
 ### Leader-backed headless（默认开启）
 

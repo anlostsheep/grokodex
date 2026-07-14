@@ -26,25 +26,35 @@ Search **X (Twitter)** through a constrained headless Grok task (read-only; no r
 | Arg | Required | Default | How to set |
 |-----|----------|---------|------------|
 | `query` | **yes** | — | Natural-language question or keywords |
-| `mode` | no | `semantic` | `semantic` = meaning/topic; `keyword` = exact-ish terms / operators style |
+| `mode` | no | see discipline | `semantic` = meaning/topic; `keyword` = exact-ish terms (prefer for vague “news/hot today”) |
 | `limit` | no | `5` | How many hits to return (bridge caps at 50) |
-| `from_date` | no | — | `YYYY-MM-DD` inclusive start |
-| `to_date` | no | — | `YYYY-MM-DD` inclusive end |
+| `from_date` | no | — | `YYYY-MM-DD` inclusive start; **set to today** for “today’s news” |
+| `to_date` | no | — | `YYYY-MM-DD` inclusive end; **set to today** for “today’s news” |
 | `usernames` | no | — | Array of handles (with or without `@`) to bias/limit authors |
 | `cwd` | no | host cwd | Working directory |
-| `timeout_ms` | no | `180000` | Shorter default than run/imagine; raise if needed |
+| `timeout_ms` | no | **90000** (bridge short path) | Raise only if needed after narrowing query |
 | `model` | no | CLI default | Only if user requests a model |
 
 ### Choosing `mode`
 
-- **semantic** — “what are people saying about library X”, product launches, vague topics
-- **keyword** — cashtags, exact slogans, hashtags, or when the user pastes a keyword-style query
+- **keyword** — cashtags, slogans, hashtags, **and vague “today’s interesting news/hot posts”** (use with today’s dates)
+- **semantic** — “what are people saying about library X”, product launches, clear topical questions
 
 ### Query tips
 
 - Include time intent in `from_date`/`to_date` rather than only in prose when possible.
 - Prefer `usernames` for “from @foo and @bar”.
 - Keep `limit` small (3–10) for chat readability unless user wants more.
+
+## Query discipline (performance)
+
+1. Vague requests (“有趣新闻”, “what’s interesting on X today”, “热点”):
+   - Prefer **`mode=keyword`** (not open-ended semantic).
+   - Set **`from_date` and `to_date` to today** (host local date `YYYY-MM-DD`).
+   - Use concrete keywords (CN and/or EN); optional `usernames` for wire sources.
+2. **Forbidden:** after empty results or TIMEOUT, automatically retry with a *broader* English dump query unless the user asks for a different strategy.
+3. On TIMEOUT: suggest narrowing query / usernames / dates, or raise `timeout_ms` with user consent.
+4. Bridge runs a **short path** (low max-turns, X tools only). Do not expect multi-minute research agents.
 
 ## Interpret the result
 
@@ -70,7 +80,7 @@ Success (`ok: true`):
    If structured parse failed, bridge may still return `ok: true` with only `text` and a note.  
    Then: summarize `text` carefully and say structured results were not available.
 4. **`meta`**  
-   Echo `mode`, `limit`, date filters when useful for transparency.
+   Echo `mode`, `limit`, date filters, and when useful `duration_ms`, `max_turns`, `tools_allowlist`, `leader`.
 
 Failure (`ok: false`):
 
@@ -78,8 +88,8 @@ Failure (`ok: false`):
 |------|--------|
 | `GROK_NOT_FOUND` / auth issues | Skill `grokodex-setup` |
 | `INVALID_ARGS` | Non-empty `query` required |
-| `TIMEOUT` | Narrow query / dates / usernames or raise `timeout_ms` |
-| `GROK_EXIT_NONZERO` | Share message; retry or check X tool availability on CLI |
+| `TIMEOUT` | Narrow query / dates / usernames or raise `timeout_ms` — **do not** auto-broaden and re-fire |
+| `GROK_EXIT_NONZERO` | Share message; retry same narrow query or check X tool availability on CLI |
 
 ## How to present to the user
 
@@ -91,9 +101,9 @@ Failure (`ok: false`):
 
 ## Performance note
 
-Leader-backed headless is **on by default** (warm MCP/skills). You do not need
-to pass leader args. Inspect `meta.leader` if debugging; set `use_leader=false`
-or `GROKODEX_USE_LEADER=0` for pure one-shot. Does **not** resume chat sessions.
+- Bridge **short path**: low `--max-turns`, `--tools` allowlist for X only (not a full coding agent).
+- Leader-backed headless is **on by default** (warm backend). Inspect `meta.leader` / `meta.duration_ms` if debugging.
+- Set `use_leader=false` or `GROKODEX_USE_LEADER=0` for pure one-shot. Does **not** resume chat sessions.
 
 ## Hard rules
 

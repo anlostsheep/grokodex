@@ -28,7 +28,7 @@ Generate an image with a **constrained** headless Grok run (image-only; never fu
 | `aspect_ratio` | no | `auto` | e.g. `1:1`, `16:9`, `9:16`, `4:3` when user cares about shape |
 | `save_dir` | no | `<cwd>/.grokodex/images` | Absolute or workspace-relative directory for outputs |
 | `cwd` | no | host cwd | Working directory for the Grok process |
-| `timeout_ms` | no | `600000` | Raise only for slow generations |
+| `timeout_ms` | no | **120000** (bridge short path) | Raise only for slow generations |
 | `model` | no | CLI default | Only if user asks for a specific Grok model |
 
 ### Prompt tips
@@ -36,6 +36,7 @@ Generate an image with a **constrained** headless Grok run (image-only; never fu
 - Be concrete: medium, lighting, camera angle, brand constraints.
 - Mention “no watermark / no UI chrome” when relevant.
 - If the user wants a specific filename/location, put that path intent in `prompt` **and** set `save_dir` to the parent directory.
+- Keep the task short: one image, clear subject. Do not chain coding context into imagine.
 
 ## Interpret the result
 
@@ -48,7 +49,7 @@ Success (`ok: true`):
 2. **`text`**  
    Grok’s free-form reply; may include paths or a short description. Use as secondary narrative.
 3. **`meta`**  
-   Often includes `save_dir`, `aspect_ratio`, `duration_ms`, `cwd`. Mention `save_dir` if no artifacts were parsed.
+   Often includes `save_dir`, `aspect_ratio`, `duration_ms`, `cwd`, `max_turns`, `tools_allowlist`. Mention `save_dir` if no artifacts were parsed.
 4. **`permission.notes`**  
    If notes say no image path was found, still check `meta.save_dir` / `.grokodex/images` and report what Grok wrote in `text`.
 
@@ -70,9 +71,9 @@ Failure (`ok: false`):
 
 ## Performance note
 
-Leader-backed headless is **on by default** (warm MCP/skills). You do not need
-to pass leader args. Inspect `meta.leader` if debugging; set `use_leader=false`
-or `GROKODEX_USE_LEADER=0` for pure one-shot. Does **not** resume chat sessions.
+- Bridge **short path**: low `--max-turns`, `--tools` allowlist for `image_gen` only.
+- Leader-backed headless is **on by default**. Inspect `meta.leader` / `meta.duration_ms` if debugging.
+- Set `use_leader=false` or `GROKODEX_USE_LEADER=0` for pure one-shot. Does **not** resume chat sessions.
 
 ## Hard rules
 
