@@ -1,5 +1,7 @@
 <div align="center">
 
+<img alt="Grokodex" src="assets/logo.png" width="160" height="160" />
+
 # Grokodex
 
 ### 在 Codex / Claude Code 里调用本机 Grok

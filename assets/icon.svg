@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Grokodex">
-  <rect width="32" height="32" rx="6" fill="#000000"/>
-  <text x="16" y="22" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">G</text>
+  <rect width="32" height="32" rx="7" fill="#000000"/>
+  <text x="16" y="22" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">G</text>
+  <circle cx="25" cy="7" r="3" fill="#FFFFFF"/>
 </svg>
