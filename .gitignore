@@ -39,3 +39,6 @@ coverage/
 
 # Local CodeGraph index
 .codegraph/
+
+# Local process docs (designs/plans); not part of the shipped product
+docs/superpowers/
