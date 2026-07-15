@@ -45,3 +45,6 @@ docs/superpowers/
 
 # Local progress notes; not part of the shipped product
 docs/progress/
+
+# Local host acceptance transcripts (may contain machine paths / session ids)
+test/
