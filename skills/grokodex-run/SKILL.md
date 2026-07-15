@@ -82,12 +82,31 @@ Other permission failures (`PERMISSION_DENIED`) mean config disabled inherit / f
 | `max_turns` | no | Cap agent turns (default ~30) |
 | `timeout_ms` | no | Default 600000 |
 | `extra_rules` | no | Extra constraints appended to the prompt |
+| `host_thread_id` | no | Host conversation/task id for session map resume |
+| `fresh` | no | Force new Grok session |
+| `session_id` | no | Explicit Grok `--resume` id |
 
 ### Prompt writing tips
 
 - State goal, constraints, and “done when…” criteria.
 - Point at concrete paths; avoid dumping huge unrelated context.
 - Use `extra_rules` for “do not touch X”, test commands, style notes.
+
+## Session reuse (host thread)
+
+Session reuse keeps **chat continuity** across multiple `grok_run` calls for the
+same host task (Grok CLI `--resume`), on top of the warm leader backend.
+
+1. **Before `grok_run`, obtain the host id** and pass it as `host_thread_id`:
+   - **Codex App / CLI shell:** `echo $CODEX_THREAD_ID` → pass `host_thread_id` (prefer `codex:<id>`).
+   - **Claude Code Bash:** `echo $CLAUDE_CODE_SESSION_ID` → pass `host_thread_id` (prefer `claude:<id>`).
+2. **Same task + same permission band:** reuse the same `host_thread_id` (do not invent ids).
+3. **New topic / after host `/clear`:** re-read the id from the shell, **or** pass `fresh: true`.
+4. **Permission upgrades** (e.g. restricted → inherit full): the bridge opens a **new** Grok session automatically via the permission fingerprint; no need to invent a session id.
+5. **Leader is independent** (warm process / MCP-skills backend). **Resume** is chat continuity — inspect `meta.session` (and `meta.leader` for the warm path).
+6. **Never** put the host id only inside `prompt` text as the protocol — always pass `host_thread_id` as a tool arg.
+
+Short one-shots may **not** save quota with resume; long multi-step tasks benefit most (context continuity + lower uncached on follow-ups).
 
 ## Interpret the result
 
@@ -97,6 +116,7 @@ Success (`ok: true`):
 - Mention `permission_mode` / `permission.effective` if rights mattered.
 - Prefer `permission.host_sandbox` (mirrored as `permission.codex_sandbox` for compatibility).
 - `session_id` / `meta.duration_ms` optional for transparency.
+- When debugging continuity, check `meta.session` (`resumed`, reason) and `meta.leader`.
 
 Failure (`ok: false`):
 
@@ -114,8 +134,12 @@ Failure (`ok: false`):
 By default the bridge attaches headless calls to a shared Grok **leader**
 process (warm MCP/skills; `GROKODEX_USE_LEADER` defaults on). You do not need
 to pass leader args. On ensure/leader failure it falls back to one-shot unless
-fallback is disabled. Inspect `meta.leader` when debugging. This does **not**
-resume prior chat sessions (`use_leader=false` forces one-shot only).
+fallback is disabled. Inspect `meta.leader` when debugging.
+
+**Leader ≠ session resume.** Leader warms the process; chat continuity requires
+`host_thread_id` (or explicit `session_id`) so the bridge can `--resume` when
+the permission fingerprint matches. `use_leader=false` forces one-shot process
+only — it does not disable map resume when a host key is supplied.
 
 ## Hard rules
 
@@ -123,3 +147,4 @@ resume prior chat sessions (`use_leader=false` forces one-shot only).
 2. Default: no inherit.
 3. Inherit only on explicit user/host Full-Access intent **and** pass known `host_sandbox`.
 4. On `INHERIT_UNAVAILABLE`, explain and recover (restricted or sandbox).
+5. For multi-step continuity, pass `host_thread_id` as a tool arg — never only in prompt text.

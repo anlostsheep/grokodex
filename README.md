@@ -202,6 +202,20 @@ Headless 调用默认走本机 Grok **leader** 暖 backend。失败则 **one-sho
 
 排障看 `meta.leader`。Codex 与 Claude 可共享同一本机 leader（预期行为）。
 
+**Leader 与 Session 复用是两层机制：**
+
+| Mechanism | How | Purpose |
+|-----------|-----|---------|
+| Leader | `GROKODEX_USE_LEADER` / `--leader` | Warm process（暖 backend / MCP·skills） |
+| Session reuse | `host_thread_id` + map | `--resume` 同一 Grok chat（指纹匹配时） |
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `GROKODEX_SESSION_REUSE` | true | 启用 host map resume |
+| `GROKODEX_SESSION_RESUME_FALLBACK` | true | resume 失败时去掉 resume 重试 |
+
+同任务续作时，skill 应读取宿主线程 id 并传入 `host_thread_id`（Codex：`CODEX_THREAD_ID` → 推荐 `codex:<id>`；Claude：`CLAUDE_CODE_SESSION_ID` → 推荐 `claude:<id>`）。短 one-shot 未必省额度；长链路多轮续作更受益。排障看 `meta.session`。
+
 > **警告：** Full-Access / `danger-full-access` inherit 费用与破坏力都更高。仅在用户明确要求时使用。
 
 ---
