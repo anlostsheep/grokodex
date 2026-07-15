@@ -54,6 +54,7 @@
 - [环境变量](#环境变量)
 - [仓库结构](#仓库结构)
 - [本地开发](#本地开发)
+- [版本与发版](#版本与发版)
 - [限制](#限制非目标)
 - [Star History](#star-history)
 - [贡献与支持](#贡献与支持)
@@ -278,9 +279,15 @@ claude plugin install grokodex@grokodex
 2. `/mcp` 确认四工具（名称可能带 `mcp__…` 前缀）  
 3. 先调 **`grok_setup`**  
 
-### 更新
+### 更新 / 钉版本
 
-按各宿主 CLI 刷新 marketplace / 更新插件即可。维护者发版时会更新仓内 `plugins/grokodex` 预构建产物。
+按各宿主 CLI 刷新 marketplace 并更新插件即可。也可钉到 git tag（与 `package.json` 版本一致，见 [版本与发版](#版本与发版)）：
+
+```bash
+# 示例：安装 0.2.0 对应提交
+codex plugin marketplace add anlostsheep/grokodex --ref v0.2.0
+codex plugin add grokodex@grokodex
+```
 
 ---
 
@@ -350,7 +357,19 @@ GROKODEX_USE_LEADER=0
 
 本地脚本：`./scripts/install-*-plugin.sh --no-leader`。
 
-**3）确认不是「装错插件副本」**
+**3）Claude Code：MCP 进程秒退 / 找不到 bundle（路径解析）**
+
+公开插件 **≥ 0.2.0** 的 `.mcp.json` 使用：
+
+```text
+${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs
+```
+
+**不要**依赖 `"cwd": "."` + `./bridge/...`：Claude Code 会把相对路径解析成**当前会话工作区**（例如 `/Users/你`），而不是插件目录，导致 `bundle.mjs` 找不到、MCP 握手失败。
+
+若仍装到旧版（0.1.x 相对路径）：请更新 marketplace 到 **v0.2.0+** 或重装插件。
+
+**4）确认不是「装错插件副本」**
 
 - 改仓库代码后要重新 `marketplace` 更新 / 跑 install 脚本；**源码目录 ≠ 宿主正在加载的插件**  
 - Node 18.18+ 必须在 **PATH**（公开安装使用 `command: "node"`）
@@ -496,7 +515,11 @@ scripts/              # package / 本地 install / 一致性检查
 LICENSE               # MIT 协议全文
 ```
 
-公开 MCP 使用 PATH 上的 `node` + 相对路径，**不含**本机绝对路径。
+公开 MCP：
+
+- **Claude Code**：`.mcp.json` → `${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs`（避免相对路径被解析成会话 cwd）  
+- **Codex**：`.mcp.codex.json` → `./bridge/dist/bundle.mjs` + `cwd: "."`（由 Codex plugin 清单指向）  
+- `command` 均为 PATH 上的 `node`，**无**本机绝对路径  
 
 ---
 
@@ -513,15 +536,46 @@ clone 后改代码时用脚本装到本机（先 package，再同步；绝对路
 ./scripts/install-claude-plugin.sh
 ```
 
-维护者发版：
+---
+
+## 版本与发版
+
+| 项 | 约定 |
+|----|------|
+| **唯一版本源** | 根目录 `package.json` 的 `"version"`（SemVer） |
+| **同步位置** | `plugins/grokodex` 内两边 `plugin.json`、Claude marketplace `metadata.version` / 插件条目（由组装脚本写入） |
+| **Git tag** | `v` + 版本号，如 `v0.2.0`（便于 `marketplace add --ref`） |
+| **变更记录** | [`CHANGELOG.md`](./CHANGELOG.md) |
+
+### 日常改代码（不升版本）
 
 ```bash
-npm i && npm test && npm run build
-npm run package:plugin
-npm run check:plugin
-# 提交 plugins/grokodex 与 marketplace 清单后 push
+npm test
+npm run build
+npm run package:plugin    # 刷新 plugins/grokodex（版本戳仍为当前 package.json）
+npm run check:plugin      # 确认树与组装一致
+git add plugins/grokodex .agents/plugins .claude-plugin
+git commit -m "fix: …"
+git push
 ```
 
+### 正式发版（推荐）
+
+工作区干净时：
+
+```bash
+# patch | minor | major，或显式 0.2.1
+./scripts/release.sh minor
+# 本地会：改 package.json → test → package:plugin → commit → 打 tag vX.Y.Z
+
+git push origin HEAD && git push origin vX.Y.Z
+# 或一步推送：
+./scripts/release.sh minor --push
+```
+
+等价 npm script：`npm run release -- minor --push`。
+
+**当前版本：0.2.0**（Claude 路径修复 + 版本化发版流程）。
 ---
 
 ## 限制（非目标）

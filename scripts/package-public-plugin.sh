@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # Assemble committed public plugin tree at plugins/grokodex.
+# Version is always read from root package.json (single source of truth).
+#
 # Usage:
 #   ./scripts/package-public-plugin.sh
 #   ./scripts/package-public-plugin.sh --no-build
-#   ./scripts/package-public-plugin.sh --mcp-strategy=2   # Claude .mcp.json + .mcp.codex.json
+#   ./scripts/package-public-plugin.sh --mcp-strategy=2   # default: Claude + Codex dual MCP files
+#   ./scripts/package-public-plugin.sh --mcp-strategy=1   # legacy single Codex-shaped .mcp.json (breaks Claude Code cwd)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${ROOT}/plugins/grokodex"
 DO_BUILD=1
-MCP_STRATEGY=1
+# Default strategy 2: Claude Code requires ${CLAUDE_PLUGIN_ROOT} (session cwd ≠ plugin root).
+# Codex reads .mcp.codex.json via .codex-plugin/plugin.json.
+MCP_STRATEGY=2
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,7 +22,7 @@ while [[ $# -gt 0 ]]; do
     --mcp-strategy=1) MCP_STRATEGY=1; shift ;;
     --mcp-strategy=2) MCP_STRATEGY=2; shift ;;
     -h|--help)
-      sed -n '2,8p' "$0"
+      sed -n '2,12p' "$0"
       exit 0
       ;;
     *)
@@ -54,9 +59,13 @@ mkdir -p "$OUT/bridge/dist" "$OUT/skills" "$OUT/assets" \
 
 cp "$BUNDLE" "$OUT/bridge/dist/bundle.mjs"
 rsync -a --delete "${ROOT}/skills/" "$OUT/skills/"
-if [[ -d "${ROOT}/assets" ]]; then
-  rsync -a --delete "${ROOT}/assets/" "$OUT/assets/"
-fi
+# Only plugin chrome assets (not README star-history charts under assets/star-history/)
+mkdir -p "$OUT/assets"
+for f in icon.svg logo.svg; do
+  if [[ -f "${ROOT}/assets/$f" ]]; then
+    cp "${ROOT}/assets/$f" "$OUT/assets/$f"
+  fi
+done
 [[ -f "${ROOT}/LICENSE" ]] && cp "${ROOT}/LICENSE" "$OUT/LICENSE"
 
 cat >"$OUT/README.md" <<EOF
@@ -187,6 +196,17 @@ assert_ok "bundle missing" test -f "$OUT/bridge/dist/bundle.mjs"
 assert_ok "codex plugin.json missing" test -f "$OUT/.codex-plugin/plugin.json"
 assert_ok "claude plugin.json missing" test -f "$OUT/.claude-plugin/plugin.json"
 assert_ok "skills missing" test -d "$OUT/skills/grokodex-setup"
+
+if [[ "$MCP_STRATEGY" -eq 2 ]]; then
+  assert_ok "Claude MCP missing CLAUDE_PLUGIN_ROOT" \
+    grep -Fq '${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs' "$OUT/.mcp.json"
+  assert_ok "Codex MCP file missing" test -f "$OUT/.mcp.codex.json"
+  # Claude .mcp.json must not rely on relative ./bridge (session cwd bug)
+  if grep -qE '"\./bridge/|"cwd"[[:space:]]*:[[:space:]]*"\."' "$OUT/.mcp.json"; then
+    echo "error: Claude .mcp.json must not use relative ./bridge or cwd . (Claude Code resolves session cwd)" >&2
+    exit 1
+  fi
+fi
 
 if grep -RE '/Users/|/home/|fnm/aliases' "$OUT" \
   "${ROOT}/.agents/plugins/marketplace.json" \

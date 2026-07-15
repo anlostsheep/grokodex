@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "grokodex": {
+      "command": "node",
+      "args": ["./bridge/dist/bundle.mjs"],
+      "cwd": ".",
+      "env": {
+        "GROKODEX_USE_LEADER": "1",
+        "GROKODEX_LEADER_FALLBACK": "1",
+        "GROKODEX_LEADER_ENSURE": "1"
+      }
+    }
+  }
+}

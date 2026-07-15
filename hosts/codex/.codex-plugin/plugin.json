@@ -1,6 +1,6 @@
 {
   "name": "grokodex",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Grok agent & tools for coding agents — local Grok, Imagine, and X search via MCP.",
   "author": { "name": "Grokodex contributors" },
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "grokodex",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Use local Grok from Claude Code: delegate tasks, Imagine images, and search X via MCP.",
   "author": {
     "name": "Grokodex contributors"
