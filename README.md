@@ -108,6 +108,52 @@ claude plugin install grokodex@grokodex
 > [!TIP]
 > 若提示 *MCP skipped – same command/URL as already-configured "grokodex"*：说明还有**另一条**手写/项目 `.mcp.json` 或旧 MCP 与插件抢名字。关掉或删除重复的 `grokodex` MCP，只留插件那条，再新开会话。
 
+### 升级 Codex 插件
+
+Codex **没有**单独的 `plugin upgrade`。要升版：先刷新 **marketplace 快照**，再 **重装插件**，最后重启 App。
+
+Marketplace 的配置名是 **`grokodex`**（不是 `anlostsheep/grokodex`）。`marketplace remove` 只接受名字（字母、数字、`_`、`-`），带 `/` 会报 invalid name。
+
+**A. 跟 main 安装的（未使用 `--ref`）**
+
+```bash
+codex plugin marketplace upgrade grokodex
+codex plugin remove grokodex@grokodex
+codex plugin add grokodex@grokodex
+```
+
+完全退出并重启 Codex App → 新会话。
+
+**B. 钉 tag 安装的（例如 `--ref v0.2.0`）**
+
+`marketplace upgrade` 只会按**已登记的 ref** 刷新，不会自动跳到新 tag。换版本需先卸 marketplace，再钉新 tag：
+
+```bash
+codex plugin remove grokodex@grokodex
+codex plugin marketplace remove grokodex
+
+codex plugin marketplace add anlostsheep/grokodex --ref v0.3.0   # 换成目标 tag
+codex plugin add grokodex@grokodex
+```
+
+重启 Codex App → 新会话。
+
+**C. 本地开发（personal marketplace）**
+
+若用过 `./scripts/install-codex-plugin.sh`（`grokodex@personal`），在仓库更新后重新跑该脚本即可，与公开 Git 的 `grokodex@grokodex` 互不自动同步。
+
+**可选核对**
+
+```bash
+codex plugin marketplace list
+codex plugin list --marketplace grokodex
+# 快照内版本（package / plugin 清单）
+# cat ~/.codex/.tmp/marketplaces/grokodex/package.json | head -5
+```
+
+> [!IMPORTANT]
+> 只 `plugin remove` **不会**换掉 marketplace 源。若提示 *marketplace 'grokodex' is already added from a different source*，先执行 `codex plugin marketplace remove grokodex`，再 `add`（需要时可加 `--ref`）。
+
 ### 3. 第一次调用
 
 1. 终端确认 Grok 可用：`grok whoami` 或 `grok -m <模型> -p "ping"`  
@@ -284,6 +330,7 @@ scripts/                   # package / install / release
 | 唯一版本源 | `package.json` → `"version"` |
 | 同步 | `npm run package:plugin` 写入插件与 marketplace |
 | Tag | `v0.2.0` 等形式，可 `marketplace add --ref` |
+| 使用者升版 | 见 [升级 Codex 插件](#升级-codex-插件)（`upgrade` 或换 tag） |
 | 变更 | [`CHANGELOG.md`](./CHANGELOG.md) |
 
 ```bash
@@ -309,6 +356,7 @@ npm test && npm run package:plugin && npm run check:plugin
 | MCP skipped / 两个 grokodex | 关掉手写或项目 `.mcp.json` 里的同名 MCP，只留插件 MCP |
 | 只要第三方上游仍超时 | 修好 `config.toml` 后，坏官方 session + 默认 leader 仍可能连 `code.grok.com`；`GROKODEX_USE_LEADER=0` 或修好 login |
 | 改了源码宿主没变 | 源码目录 ≠ 已装插件；需 `package:plugin` 提交或跑 install 脚本 |
+| Codex 升不了版 / *different source* | `marketplace remove` 用名字 **`grokodex`**，不是 `anlostsheep/grokodex`；步骤见 [升级 Codex 插件](#升级-codex-插件) |
 
 更细的术语表（`restricted` / `inherit` / leader 等）见下方折叠。
 
