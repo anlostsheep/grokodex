@@ -46,6 +46,7 @@
 - [Grok 鉴权（不必只靠 OAuth）](#grok-鉴权不必只靠-oauth)
 - [安装](#安装推荐公开-git-marketplace)
 - [首次使用](#首次使用)
+- [排障（装上了但超时 / unauthorized）](#排障装上了但超时--unauthorized)
 - [MCP 工具](#mcp-工具)
 - [权限](#权限)
 - [Leader 与会话续作](#leader-与会话续作)
@@ -227,11 +228,79 @@ claude plugin install grokodex@grokodex
 
 ---
 
+## 排障（装上了但超时 / unauthorized）
+
+Grokodex **只负责**在宿主里调用本机 `grok`。插件 marketplace 装成功 ≠ 上游鉴权健康。下面这类现象多半是 **Grok CLI / 官方会话** 问题，而不是「插件没装上」。
+
+### 常见症状
+
+| 你看到的 | 更可能的原因 |
+|----------|----------------|
+| 工具长时间卡住，最后超时 / MCP `-32000` | bridge 在等 headless；leader 或 `grok` 起不来 / 鉴权被拒 |
+| Grok 日志：`relay_connected wss://code.grok.com/...` 随后 `WS close … User unauthorized`，再无限 `Reconnecting...` | **能连上网**，但 **官方会话/token 无效**，不是代理问题 |
+| `grok whoami` → `Device not configured` | 设备/登录态未就绪或 session 失效（与上面同类） |
+| `grok_setup` 显示 `auth_ok` / auth file present，但任务仍失败 | 探测目前主要看 **`~/.grok/auth.json` 是否存在且非空**，**不能**证明 session 仍被官方接受 |
+
+### 先在本机终端自检（不要只在宿主里重试）
+
+```bash
+grok --version
+grok whoami          # 不应是 Device not configured
+# 若走官方模型：
+# grok logout && grok login    # 完整走完浏览器授权后再测
+# 若走第三方模型：
+# grok -m <你的模型名> -p "ping"
+```
+
+再看 leader 日志（若开启 leader）：是否出现 `User unauthorized`、是否在重连死循环。
+
+### 按场景处理
+
+**1）走 xAI 官方（OAuth / 官方 catalog）**
+
+```bash
+grok logout    # 可选，清掉坏 session
+grok login     # 必须完整成功
+grok whoami    # 确认正常
+```
+
+然后 **完全退出并重启** Codex App / Claude Code，新开会话再调 `grok_setup` → `grok_run`。
+
+**2）走第三方 / API Key（不依赖 code.grok.com session）**
+
+1. 按 [Grok 鉴权](#grok-鉴权不必只靠-oauth) 配好 `~/.grok/config.toml` 或 `XAI_API_KEY` / `GROK_MODELS_BASE_URL`  
+2. 终端：`grok -m <模型> -p "ping"` 必须成功  
+3. 若本机仍残留 **坏掉的官方 session**，默认 **leader** 仍可能去连 `code.grok.com` 并被 `User unauthorized` 踢掉，表现为 Grokodex 超时：  
+   - 要么重新 `grok login` 修好官方态，或  
+   - 临时关闭 leader，强制 one-shot：
+
+```bash
+# MCP 环境变量（公开树默认 USE_LEADER=1；本机可改插件 .mcp.json 或重装脚本）
+GROKODEX_USE_LEADER=0
+```
+
+本地脚本：`./scripts/install-*-plugin.sh --no-leader`。
+
+**3）确认不是「装错插件副本」**
+
+- 改仓库代码后要重新 `marketplace` 更新 / 跑 install 脚本；**源码目录 ≠ 宿主正在加载的插件**  
+- Node 18.18+ 必须在 **PATH**（公开安装使用 `command: "node"`）
+
+### 和代理的关系
+
+若日志已有 **`relay_connected`** 到 `wss://code.grok.com/...`，说明到官方 WS 的链路是通的；再出现 **`User unauthorized`** 应优先查 **登录/授权**，而不是先折腾系统代理。
+
+### 给宿主里的 AI 的提示
+
+用户报告超时时：先让用户在终端跑 `grok whoami` / 看 leader 是否 `unauthorized`，再决定 `grok login`、修第三方配置或 `GROKODEX_USE_LEADER=0`；不要默认让用户反复重装 Grokodex 插件。
+
+---
+
 ## MCP 工具
 
 | 工具 | 作用 | 要点 |
 |------|------|------|
-| `grok_setup` | 诊断本机 grok / 鉴权探测 | 建议先于其他工具；不代替配置第三方上游 |
+| `grok_setup` | 诊断本机 grok / 鉴权探测 | 建议先于其他工具；`auth file present` ≠ session 一定有效 |
 | `grok_run` | 通用 headless 委托 | 默认 `restricted`；可选 `inherit`；可用 `model` 指定 CLI 模型名 |
 | `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images`；依赖上游是否支持生图 |
 | `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword`；依赖上游/账号能力 |
@@ -286,7 +355,9 @@ inherit 解析顺序：参数 `host_sandbox` → 环境变量 → 静态 `~/.cod
 | `GROKODEX_LEADER_FALLBACK` | true | 失败退回 one-shot |
 | `GROKODEX_LEADER_ENSURE` | true | 尝试拉起 leader |
 
-排障看 `meta.leader`。本地脚本可用 `--no-leader`。
+排障看响应里的 `meta.leader`。本地脚本可用 `--no-leader`。  
+
+默认 leader 会连本机 Grok 暖进程，而暖进程在 **官方路径** 下依赖有效 session；session 失效时可能出现官方 WS `User unauthorized` 与 Grokodex 侧超时——见 [排障](#排障装上了但超时--unauthorized)。
 
 ### 会话续作（session reuse）
 
@@ -407,7 +478,8 @@ npm run check:plugin
 ## 贡献与支持
 
 - 提交 Issue / PR：<https://github.com/anlostsheep/grokodex/issues>  
-- 使用中请先跑 `grok_setup`，把失败时的 `error.code` / `hint` 一并附上  
+- 使用中请先：本机 `grok whoami`（或第三方 `grok -m … -p "ping"`）→ 宿主内 `grok_setup`  
+- 开 Issue 时尽量附上：`error.code` / `hint`、是否出现 `User unauthorized` 或 `Device not configured`、是否使用第三方上游、是否关闭 leader  
 
 ---
 
