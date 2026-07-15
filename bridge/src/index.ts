@@ -127,6 +127,21 @@ const TOOLS = [
           description:
             "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)",
         },
+        host_thread_id: {
+          type: "string",
+          description:
+            "Host conversation/task id (Codex CODEX_THREAD_ID or Claude CLAUDE_CODE_SESSION_ID). Enables session reuse with permission fingerprinting.",
+        },
+        fresh: {
+          type: "boolean",
+          description:
+            "Force a new Grok session (ignore map). Updates map slot when host_thread_id is set.",
+        },
+        session_id: {
+          type: "string",
+          description:
+            "Explicit Grok session id to --resume (overrides host map lookup).",
+        },
       },
       required: ["prompt"],
     },
@@ -287,6 +302,11 @@ function parseGrokRunArgs(raw: Record<string, unknown> | undefined): GrokRunArgs
     extra_rules: asString(args.extra_rules),
     use_leader:
       typeof args.use_leader === "boolean" ? args.use_leader : undefined,
+    host_thread_id:
+      typeof args.host_thread_id === "string" ? args.host_thread_id : undefined,
+    fresh: args.fresh === true ? true : args.fresh === false ? false : undefined,
+    session_id:
+      typeof args.session_id === "string" ? args.session_id : undefined,
   };
 }
 
