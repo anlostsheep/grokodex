@@ -9,7 +9,7 @@
   <a href="https://github.com/anlostsheep/grokodex/stargazers"><img src="https://img.shields.io/github/stars/anlostsheep/grokodex?style=for-the-badge&logo=github" alt="GitHub Stars"/></a>
   <a href="https://github.com/anlostsheep/grokodex/network/members"><img src="https://img.shields.io/github/forks/anlostsheep/grokodex?style=for-the-badge&logo=github" alt="GitHub Forks"/></a>
   <a href="https://github.com/anlostsheep/grokodex/issues"><img src="https://img.shields.io/github/issues/anlostsheep/grokodex?style=for-the-badge" alt="Issues"/></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/anlostsheep/grokodex?style=for-the-badge" alt="License: MIT"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT"/></a>
 </p>
 
 <p align="center">
@@ -17,7 +17,6 @@
   <img src="https://img.shields.io/badge/Codex-plugin-412991" alt="Codex"/>
   <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97706" alt="Claude Code"/>
   <img src="https://img.shields.io/badge/MCP-stdio-555" alt="MCP"/>
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"/>
 </p>
 
 ---
