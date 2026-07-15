@@ -28,7 +28,8 @@ skills + MCP 插件 · 预构建 bundle · Git marketplace 一键安装
 <a href="#mcp-工具">MCP 工具</a> ·
 <a href="#权限说明">权限说明</a> ·
 <a href="#常见问题">常见问题</a> ·
-<a href="#版本与发版">版本与发版</a>
+<a href="#版本与发版">版本与发版</a> ·
+<a href="#友链">友链</a>
 </p>
 
 </div>
@@ -395,6 +396,16 @@ npm test && npm run package:plugin && npm run check:plugin
 
 - Issue / PR：<https://github.com/anlostsheep/grokodex/issues>  
 - 反馈时请尽量附：`grok --version`、`grok whoami` 摘要（**不要**贴 `auth.json` / key）、是否第三方上游、是否 `User unauthorized`、宿主类型  
+
+---
+
+## 友链
+
+本项目链接认可 [LINUX DO](https://linux.do/) 社区。
+
+| 站点 | 说明 |
+| :-- | :-- |
+| [LINUX DO](https://linux.do/) | 新的理想型社区 |
 
 ---
 
