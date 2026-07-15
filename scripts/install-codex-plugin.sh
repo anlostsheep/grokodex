@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Install / refresh Grokodex into the local Codex Personal marketplace.
 # Usage:
-#   ./scripts/install-codex-plugin.sh           # build + install + enable
+#   ./scripts/install-codex-plugin.sh           # package + install + enable
 #   ./scripts/install-codex-plugin.sh --no-build
 #   ./scripts/install-codex-plugin.sh --no-leader   # MCP env USE_LEADER=0
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOME_DIR="${HOME:?HOME not set}"
-VERSION="0.1.0"
+VERSION="$(node -p "require('${ROOT}/package.json').version")"
 PLUGIN_SRC_NAME="grokodex"
 NODE_BIN="$(command -v node || true)"
 if [[ -z "$NODE_BIN" ]]; then
@@ -42,22 +42,20 @@ INSTALL_ROOTS=(
 
 echo "==> repo: $ROOT"
 echo "==> node: $NODE_BIN"
+echo "==> version: $VERSION"
 echo "==> GROKODEX_USE_LEADER default for MCP env: $USE_LEADER"
 
-if [[ ! -d "${ROOT}/hosts/codex/.codex-plugin" ]]; then
-  echo "error: missing hosts/codex/.codex-plugin — repo layout incomplete" >&2
-  exit 1
+PACKAGE_ARGS=()
+if [[ "$DO_BUILD" -eq 0 ]]; then
+  PACKAGE_ARGS+=(--no-build)
 fi
+echo "==> package public plugin tree"
+bash "${ROOT}/scripts/package-public-plugin.sh" "${PACKAGE_ARGS[@]}"
 
-if [[ "$DO_BUILD" -eq 1 ]]; then
-  echo "==> npm run build"
-  (cd "$ROOT" && npm run build)
-else
-  echo "==> skip build (--no-build)"
-  if [[ ! -f "$ROOT/bridge/dist/bundle.mjs" ]]; then
-    echo "error: missing bridge/dist/bundle.mjs — run without --no-build" >&2
-    exit 1
-  fi
+PUBLIC_UNIT="${ROOT}/plugins/grokodex"
+if [[ ! -d "${PUBLIC_UNIT}/.codex-plugin" ]]; then
+  echo "error: missing ${PUBLIC_UNIT}/.codex-plugin after package" >&2
+  exit 1
 fi
 
 write_mcp_json() {
@@ -78,31 +76,22 @@ write_mcp_json() {
   }
 }
 EOF
+  # Local install always uses Codex-shaped .mcp.json; drop strategy-2 sibling if present
+  rm -f "${dest}/.mcp.codex.json"
 }
 
 sync_one() {
   local dest="$1"
-  mkdir -p "$dest/bridge/dist" "$dest/skills" "$dest/assets" "$dest/.codex-plugin"
-
+  mkdir -p "$dest"
   rsync -a --delete \
-    "${ROOT}/bridge/dist/" "${dest}/bridge/dist/"
-  rsync -a --delete \
-    "${ROOT}/skills/" "${dest}/skills/"
-  if [[ -d "${ROOT}/assets" ]]; then
-    rsync -a --delete \
-      "${ROOT}/assets/" "${dest}/assets/"
-  fi
-  rsync -a --delete \
-    "${ROOT}/hosts/codex/.codex-plugin/" "${dest}/.codex-plugin/"
-
-  [[ -f "${ROOT}/LICENSE" ]] && cp "${ROOT}/LICENSE" "${dest}/LICENSE"
-  [[ -f "${ROOT}/README.md" ]] && cp "${ROOT}/README.md" "${dest}/README.md"
-
+    --exclude '.mcp.json' \
+    --exclude '.mcp.codex.json' \
+    "${PUBLIC_UNIT}/" "$dest/"
   write_mcp_json "$dest"
   echo "    synced $dest"
 }
 
-echo "==> sync plugin trees (whitelist from hosts/codex + bridge + skills)"
+echo "==> sync plugin trees from plugins/grokodex (local MCP may use absolute node)"
 for dest in "${INSTALL_ROOTS[@]}"; do
   sync_one "$dest"
 done
@@ -135,13 +124,11 @@ cat >"$MARKETPLACE_JSON" <<'EOF'
 EOF
 echo "    wrote $MARKETPLACE_JSON"
 
-# Mirror under marketplaces/personal for tools that resolve that root
 cp "$MARKETPLACE_JSON" \
   "${HOME_DIR}/.codex/marketplaces/personal/.agents/plugins/marketplace.json"
 
 if command -v codex >/dev/null 2>&1; then
   echo "==> codex plugin add grokodex@personal"
-  # Marketplace root is $HOME when path is relative to home
   if ! codex plugin marketplace list 2>/dev/null | grep -qi personal; then
     codex plugin marketplace add "$HOME_DIR" 2>/dev/null || true
   fi
@@ -163,3 +150,4 @@ echo "  4. Call grok_setup, then grok_run"
 echo ""
 echo "Disable leader: re-run with --no-leader, or set GROKODEX_USE_LEADER=0 in .mcp.json"
 echo "Primary install path: ${HOME_DIR}/.codex/plugins/grokodex"
+echo "Public tree (unchanged by absolute node): ${PUBLIC_UNIT}"

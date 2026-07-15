@@ -1,0 +1,18 @@
+{
+  "name": "grokodex",
+  "version": "0.1.0",
+  "description": "Use local Grok from Claude Code: delegate tasks, Imagine images, and search X via MCP.",
+  "author": {
+    "name": "Grokodex contributors"
+  },
+  "keywords": [
+    "grok",
+    "mcp",
+    "imagine",
+    "x-search",
+    "xai"
+  ],
+  "repository": "https://github.com/anlostsheep/grokodex",
+  "homepage": "https://github.com/anlostsheep/grokodex",
+  "license": "MIT"
+}

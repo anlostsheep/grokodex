@@ -3,7 +3,7 @@
 在 **Codex** / **Claude Code**（及其他 MCP 宿主）里使用本机 **Grok** agent 与独有工具（委托、Imagine 生图、X 搜索）。
 
 - 插件 id：`grokodex`（早期为 Codex 集成命名；现为多宿主 bridge，id 暂不改）
-- 形态：skills + MCP bridge；经 **本地 Personal marketplace** 安装
+- 形态：skills + MCP bridge；支持 **公开 Git marketplace** 与本地开发安装
 - 默认权限：`restricted`（工作区可写，高危 shell 硬拒绝）；可选显式 `inherit`
 
 ---
@@ -21,11 +21,12 @@ Claude Code  ───┼── stdio MCP → grokodex-bridge
 
 能力走 **MCP tools**，流程走 **skills**。不要用 shell 直接跑 `grok` 旁路（setup 引导登录除外）。
 
-源码树与安装树分离：
+源码树与公开插件树分离：
 
-- 共享：`bridge/`、`skills/`
-- 宿主包装：`hosts/codex/`、`hosts/claude/`
-- 安装脚本把白名单内容组装到宿主插件目录
+- 共享开发源：`bridge/`、`skills/`、`hosts/`
+- **公开可安装单元（提交 git）：** `plugins/grokodex/`
+- 仓根 marketplace：`.agents/plugins/marketplace.json`（Codex）、`.claude-plugin/marketplace.json`（Claude）
+- 维护者改代码后：`npm run package:plugin`（或 `./scripts/package-public-plugin.sh`）并提交 `plugins/grokodex`
 
 ---
 
@@ -55,11 +56,41 @@ irm https://x.ai/cli/install.ps1 | iex
 
 ---
 
-## 3. 安装到 Codex（Personal marketplace）
+## 3. 公开 Marketplace 安装（推荐给其他机器）
+
+前置：Node.js 18.18+ 在 **PATH**、`grok` 已安装并登录。无需 clone 后本地 `npm install`。
+
+### Codex
+
+```bash
+codex plugin marketplace add anlostsheep/grokodex
+codex plugin add grokodex@grokodex
+```
+
+完全退出并重启 Codex App / 新会话后调用 `grok_setup`。
+
+也可指定 ref：`codex plugin marketplace add anlostsheep/grokodex --ref v0.1.0`（以当前 CLI 选项为准）。
+
+### Claude Code
+
+```bash
+claude plugin marketplace add anlostsheep/grokodex
+claude plugin install grokodex@grokodex
+```
+
+新会话 → `/mcp` 确认工具 → `grok_setup`。
+
+> 公开树内 MCP 使用 PATH 上的 `node`（无本机绝对路径）。维护者改 bridge/skills 后须运行 `npm run package:plugin` 并提交 `plugins/grokodex` 后再推送/打 tag。
+
+---
+
+## 4. 本地开发安装（Personal / grokodex-local）
+
+改仓库时用脚本装到本机；脚本会先 `package-public-plugin`，再同步到宿主目录（本机 `.mcp.json` 可用绝对路径 `node`，**不写回**公开树）。
+
+### 4.1 Codex（Personal marketplace）
 
 CLI 与 App 共用 marketplace 与 `~/.codex/config.toml`。
-
-### 3.1 一键脚本
 
 ```bash
 chmod +x scripts/install-codex-plugin.sh   # 仅首次
@@ -68,27 +99,18 @@ chmod +x scripts/install-codex-plugin.sh   # 仅首次
 
 脚本会：
 
-1. `npm run build`（可用 `--no-build` 跳过）
-2. **白名单组装** `bridge/dist` + `skills` + `hosts/codex` + `assets` 到：
+1. `package-public-plugin`（内含 `npm run build`，可用 `--no-build`）
+2. 从 `plugins/grokodex` 同步到：
    - `~/.codex/plugins/grokodex`
-   - `~/.codex/plugins/cache/personal/grokodex/0.1.0`
-3. 写入 `~/.agents/plugins/marketplace.json`
-4. 生成 `.mcp.json`：绝对路径 `node` + `./bridge/dist/bundle.mjs`
+   - `~/.codex/plugins/cache/personal/grokodex/<version>`
+3. 写入本机 `~/.agents/plugins/marketplace.json`（marketplace 名 **personal**）
+4. 本机 `.mcp.json`：绝对路径 `node` + `./bridge/dist/bundle.mjs`
 5. 默认 `GROKODEX_USE_LEADER=1`（可用 `--no-leader`）
 6. 若有 `codex` CLI：`codex plugin add grokodex@personal`
 
-然后：
+然后：完全退出并重启 Codex App → Personal 中打开 Grokodex → 新会话 → `grok_setup`。
 
-1. **完全退出并重启 Codex App**（Cmd+Q）
-2. **设置 → 插件 → Personal**：确认 **Grokodex** 为开
-3. **新开会话**
-4. `grok_setup` → `grok_run`
-
-关闭 leader：`./scripts/install-codex-plugin.sh --no-leader`
-
----
-
-## 4. 安装到 Claude Code（本地 marketplace）
+### 4.2 Claude Code（`grokodex-local`）
 
 ```bash
 chmod +x scripts/install-claude-plugin.sh   # 仅首次
@@ -97,19 +119,13 @@ chmod +x scripts/install-claude-plugin.sh   # 仅首次
 
 脚本会：
 
-1. `npm run build`（可用 `--no-build`）
-2. 组装到 `~/.claude/plugins/marketplaces/grokodex-local/plugins/grokodex`
-3. 写入 marketplace `grokodex-local`（`.claude-plugin/marketplace.json`）
-4. `.mcp.json` 使用 **`${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs`**
-5. `claude plugin marketplace add` + `claude plugin install grokodex@grokodex-local -s user`
+1. `package-public-plugin`
+2. 同步到 `~/.claude/plugins/marketplaces/grokodex-local/plugins/grokodex`
+3. 本机 marketplace 名 **`grokodex-local`**（与公开名 `grokodex` 分离）
+4. 本机 `.mcp.json`：绝对 `node` + **`${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs`**
+5. `claude plugin install grokodex@grokodex-local -s user`
 
-然后：
-
-1. **重启 Claude Code / 新开会话**
-2. `/mcp` 确认四工具可见（名称可能带 `mcp__…` 前缀）
-3. 调用 `grok_setup`，再 `grok_run`
-
-关闭 leader：`./scripts/install-claude-plugin.sh --no-leader`
+然后：重启 / 新会话 → `/mcp` → `grok_setup`。
 
 改仓库后请重新跑对应安装脚本；**源码目录 ≠ 运行中的插件副本**。
 

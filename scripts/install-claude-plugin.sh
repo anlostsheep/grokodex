@@ -8,7 +8,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOME_DIR="${HOME:?HOME not set}"
-VERSION="0.1.0"
+VERSION="$(node -p "require('${ROOT}/package.json').version")"
 PLUGIN_NAME="grokodex"
 MARKET_NAME="grokodex-local"
 MARKET_ROOT="${HOME_DIR}/.claude/plugins/marketplaces/${MARKET_NAME}"
@@ -37,44 +37,34 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -d "${ROOT}/hosts/claude/.claude-plugin" ]]; then
-  echo "error: missing hosts/claude/.claude-plugin — repo layout incomplete" >&2
-  exit 1
-fi
-
 echo "==> repo: $ROOT"
 echo "==> node: $NODE_BIN"
+echo "==> version: $VERSION"
 echo "==> marketplace: $MARKET_NAME"
 echo "==> GROKODEX_USE_LEADER: $USE_LEADER"
 
-if [[ "$DO_BUILD" -eq 1 ]]; then
-  echo "==> npm run build"
-  (cd "$ROOT" && npm run build)
-else
-  echo "==> skip build (--no-build)"
-  if [[ ! -f "$ROOT/bridge/dist/bundle.mjs" ]]; then
-    echo "error: missing bridge/dist/bundle.mjs — run without --no-build" >&2
-    exit 1
-  fi
+PACKAGE_ARGS=()
+if [[ "$DO_BUILD" -eq 0 ]]; then
+  PACKAGE_ARGS+=(--no-build)
+fi
+echo "==> package public plugin tree"
+bash "${ROOT}/scripts/package-public-plugin.sh" "${PACKAGE_ARGS[@]}"
+
+PUBLIC_UNIT="${ROOT}/plugins/grokodex"
+if [[ ! -d "${PUBLIC_UNIT}/.claude-plugin" ]]; then
+  echo "error: missing ${PUBLIC_UNIT}/.claude-plugin after package" >&2
+  exit 1
 fi
 
-mkdir -p "${PLUGIN_DEST}/bridge/dist" "${PLUGIN_DEST}/skills" \
-  "${PLUGIN_DEST}/assets" "${PLUGIN_DEST}/.claude-plugin" \
-  "${MARKET_ROOT}/.claude-plugin"
+mkdir -p "${PLUGIN_DEST}" "${MARKET_ROOT}/.claude-plugin"
 
 echo "==> assemble plugin at ${PLUGIN_DEST}"
-rsync -a --delete "${ROOT}/bridge/dist/" "${PLUGIN_DEST}/bridge/dist/"
-rsync -a --delete "${ROOT}/skills/" "${PLUGIN_DEST}/skills/"
-if [[ -d "${ROOT}/assets" ]]; then
-  rsync -a --delete "${ROOT}/assets/" "${PLUGIN_DEST}/assets/"
-fi
 rsync -a --delete \
-  "${ROOT}/hosts/claude/.claude-plugin/" "${PLUGIN_DEST}/.claude-plugin/"
-[[ -f "${ROOT}/LICENSE" ]] && cp "${ROOT}/LICENSE" "${PLUGIN_DEST}/LICENSE"
-[[ -f "${ROOT}/README.md" ]] && cp "${ROOT}/README.md" "${PLUGIN_DEST}/README.md"
+  --exclude '.mcp.json' \
+  --exclude '.mcp.codex.json' \
+  "${PUBLIC_UNIT}/" "${PLUGIN_DEST}/"
 
-# .mcp.json — Claude plugin style (stdio + CLAUDE_PLUGIN_ROOT)
-# Note: ${CLAUDE_PLUGIN_ROOT} must be literal for Claude to expand.
+# Local Claude MCP: absolute node + literal ${CLAUDE_PLUGIN_ROOT}
 cat >"${PLUGIN_DEST}/.mcp.json" <<EOF
 {
   "grokodex": {
@@ -89,7 +79,7 @@ cat >"${PLUGIN_DEST}/.mcp.json" <<EOF
 }
 EOF
 
-# marketplace manifest
+# Local marketplace name stays grokodex-local (dev); public market name is grokodex
 cat >"${MARKET_ROOT}/.claude-plugin/marketplace.json" <<EOF
 {
   "name": "${MARKET_NAME}",
@@ -119,7 +109,6 @@ if command -v claude >/dev/null 2>&1; then
   fi
 
   echo "==> marketplace add/update ${MARKET_NAME}"
-  # Prefer add; if already known, update source
   if claude plugin marketplace list 2>/dev/null | grep -q "${MARKET_NAME}"; then
     claude plugin marketplace update "${MARKET_NAME}" 2>/dev/null || \
       claude plugin marketplace add "${MARKET_ROOT}" 2>/dev/null || true
@@ -146,3 +135,4 @@ echo "  2. /mcp — confirm grokodex tools (grok_setup, grok_run, …)"
 echo "  3. Call grok_setup, then grok_run"
 echo "Disable leader: re-run with --no-leader"
 echo "Marketplace: ${MARKET_ROOT}"
+echo "Public tree (no absolute node): ${PUBLIC_UNIT}"

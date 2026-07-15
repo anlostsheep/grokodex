@@ -1,4 +1,5 @@
 {
+  "_comment": "Example only. Public Codex marketplace is .agents/plugins/marketplace.json (name: grokodex, path: ./plugins/grokodex). Local dev install writes personal marketplace under ~/.agents/plugins/.",
   "name": "personal",
   "interface": {
     "displayName": "Personal"
