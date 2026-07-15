@@ -302,6 +302,10 @@ npm run check:plugin
 如果这个项目对你有帮助，欢迎点亮右上角 **Star**，方便更多人发现。
 
 <!-- star-history:start -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/star-history/star-history-dark.svg">
+  <img alt="Star history" src="assets/star-history/star-history-light.svg">
+</picture>
 <!-- star-history:end -->
 
 <p align="center">
