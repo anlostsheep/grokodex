@@ -1,6 +1,6 @@
 <div align="center">
 
-<img alt="Grokodex" src="assets/logo.png" width="160" height="160" />
+<img alt="Grokodex" src="assets/logo.svg" width="128" height="128" />
 
 # Grokodex
 
