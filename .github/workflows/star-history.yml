@@ -1,13 +1,18 @@
-# Self-updating star history chart (static SVG in-repo).
-# Needed after GitHub restricted public stargazers API (2026-06):
-# live api.star-history.com embeds often time out / render blank.
+# Self-updating star history chart (static SVG committed to the repo).
+#
+# After 2026-06, GitHub only returns stargazer timelines to admins/collaborators.
+# Unauthenticated API → 401; default GITHUB_TOKEN often → 403 "rate limit"
+# (the action treats that as missing stargazers access).
+#
+# Fix: store a Fine-grained PAT (Metadata: Read-only on this repo) as
+# repository secret STAR_HISTORY_TOKEN, then re-run this workflow.
 name: Star History
 
 on:
   schedule:
     - cron: "0 */12 * * *" # twice daily UTC
   watch:
-    types: [started] # refresh soon after a new star
+    types: [started]
   workflow_dispatch:
 
 permissions:
@@ -21,10 +26,25 @@ jobs:
   star-history:
     runs-on: ubuntu-latest
     steps:
+      - name: Require STAR_HISTORY_TOKEN
+        env:
+          STAR_HISTORY_TOKEN: ${{ secrets.STAR_HISTORY_TOKEN }}
+        run: |
+          if [ -z "$STAR_HISTORY_TOKEN" ]; then
+            echo "::error::Missing secret STAR_HISTORY_TOKEN."
+            echo "Create a Fine-grained PAT (Metadata: Read-only) for this repo,"
+            echo "then: Settings → Secrets and variables → Actions → New repository secret"
+            echo "Name: STAR_HISTORY_TOKEN  Value: <your PAT>"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+
       - uses: narayann7/star-history-action@v1
         with:
           repos: ${{ github.repository }}
+          # PAT with Metadata read — not the default GITHUB_TOKEN
+          token: ${{ secrets.STAR_HISTORY_TOKEN }}
           type: Date
           themes: light,dark
           update-readme: true

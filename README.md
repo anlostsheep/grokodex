@@ -310,8 +310,21 @@ npm run check:plugin
   <a href="https://github.com/anlostsheep/grokodex/stargazers">Stargazers</a>
 </p>
 
-> 曲线图由本仓库 CI（`star-history` workflow）用仓库权限拉取 stargazer 数据后**提交为静态 SVG**。  
-> 自 2026-06 起 GitHub 限制了公开 stargazers API，第三方在线 `api.star-history.com` 实时图常会超时/空白；静态图更可靠。首次需在 Actions 里手动跑一次 **Star History**，或等待定时任务。
+<details>
+<summary>维护者：如何让曲线图出现在 README</summary>
+
+1. 仓库需为 **Public**（已完成）。  
+2. 自 2026-06 起，**stargazer 时间线**只能由 admin/collaborator 读取；匿名 API 返回 401，默认 `GITHUB_TOKEN` 也常 403。  
+3. 使用你已创建的 Fine-grained PAT（**Metadata: Read-only**）→  
+   仓库 **Settings → Secrets and variables → Actions → New repository secret**  
+   - Name: `STAR_HISTORY_TOKEN`  
+   - Value: 该 PAT 明文  
+4. **Actions → Star History → Run workflow**  
+5. 成功后 bot 会 commit `assets/star-history/*.svg` 并填入上方 marker；刷新 README 即可。  
+
+当前 star 为 0 时曲线接近水平，有人 star 后会随 CI 更新。
+
+</details>
 
 ---
 
