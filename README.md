@@ -34,7 +34,7 @@
 | **免责** | 软件按「现状」提供，作者不承担任何明示或暗示担保 |
 
 完整法律文本见仓库根目录 [`LICENSE`](./LICENSE)。  
-使用本插件仍须遵守 **xAI / Grok** 与各宿主（OpenAI Codex、Anthropic Claude Code）自身的服务条款。
+使用本插件仍须遵守 **上游模型提供方**（xAI 官方、你所接的第三方网关等）以及各宿主（OpenAI Codex、Anthropic Claude Code）的服务条款。
 
 ---
 
@@ -43,6 +43,7 @@
 - [项目协议（License）](#项目协议license)
 - [它是什么](#它是什么)
 - [依赖](#依赖)
+- [Grok 鉴权（不必只靠 OAuth）](#grok-鉴权不必只靠-oauth)
 - [安装](#安装推荐公开-git-marketplace)
 - [首次使用](#首次使用)
 - [MCP 工具](#mcp-工具)
@@ -67,7 +68,7 @@
 | 安装 | Git marketplace（推荐）或本仓库开发脚本 |
 | 默认权限 | `restricted`（工作区可写；高危 shell 硬拒绝） |
 
-宿主是编排者，Grok 是 worker。能力走 **MCP 工具**；不要用 shell 旁路 `grok`（仅安装 / `grok login` 除外）。
+宿主是编排者，Grok 是 worker。能力走 **MCP 工具**；不要用 shell 旁路 `grok` 完成业务任务（安装 CLI、改 `~/.grok/config.toml`、配置鉴权除外）。
 
 ```
 Codex / Claude Code
@@ -76,7 +77,11 @@ Codex / Claude Code
   grokodex-bridge (node)
         │
         ▼
-  本机 grok CLI + xAI 登录
+  本机 Grok Build CLI（grok）
+        │
+        ├── 官方 session（grok login）和/或
+        ├── XAI_API_KEY 官方 API Key 和/或
+        └── 第三方 / 自建 OpenAI 兼容上游（config.toml）
 ```
 
 ---
@@ -86,23 +91,93 @@ Codex / Claude Code
 | 依赖 | 说明 |
 |------|------|
 | **Node.js 18.18+** | 必须在 **PATH** 上（公开安装使用 `command: "node"`） |
-| **Grok CLI** | `grok` 在 PATH，或设置 `GROK_PATH` |
-| **xAI 登录** | 本机已执行 `grok login` |
+| **Grok CLI（Grok Build）** | `grok` 在 PATH，或设置 `GROK_PATH` |
+| **可用的 Grok 上游鉴权** | **任选其一或组合**：官方 `grok login`、官方 `XAI_API_KEY`、或第三方/自建 API（见下节） |
 | **Codex 和/或 Claude Code** | 支持 plugin marketplace 的本机版本 |
+
+安装 Grok CLI（**只装 CLI，鉴权见下一节**）：
 
 ```bash
 # macOS / Linux / WSL
 curl -fsSL https://x.ai/cli/install.sh | bash
-grok login
 ```
 
 ```powershell
 # Windows
 irm https://x.ai/cli/install.ps1 | iex
-grok login
 ```
 
 不捆绑 `grok` 二进制。预构建 MCP 已随仓库提交，**普通用户安装无需** `npm install`。
+
+---
+
+## Grok 鉴权（不必只靠 OAuth）
+
+Grokodex 只调用本机 **Grok Build CLI**。CLI 如何连上游，由 **Grok 自己的配置**决定——**不是**「必须 `grok login` 浏览器 OAuth」。
+
+常见三种方式（可并存）：
+
+| 方式 | 适用 | 怎么做 |
+|------|------|--------|
+| **A. 官方 session** | xAI 订阅 / 官方账号 | `grok login` → session 写入 `~/.grok/auth.json` |
+| **B. 官方 API Key** | xAI 控制台发的 key | 环境变量 `XAI_API_KEY`（旧名 `GROK_CODE_XAI_API_KEY` 也常被识别） |
+| **C. 第三方 / 自建上游** | OpenAI 兼容中转、Sub2API、自建网关等 | 在 `~/.grok/config.toml` 写 `[model.*]`（`base_url` + key），或全局 `GROK_MODELS_BASE_URL` + key |
+
+### A. 官方 OAuth / 登录（可选）
+
+```bash
+grok login
+```
+
+### B. 官方 API Key（可不 login）
+
+```bash
+export XAI_API_KEY="xai-..."   # 勿提交到 git
+grok -p "ping"
+```
+
+### C. 第三方 API（推荐写法：按模型分段）
+
+在 `~/.grok/config.toml` 增加自定义模型（字段以本机 `grok` 用户手册 **Custom Models** 为准，常见路径：`~/.grok/docs/user-guide/11-custom-models.md`）：
+
+```toml
+# ~/.grok/config.toml
+
+[model.my-upstream]
+model = "grok-4.5"                          # 发给上游的 model id
+base_url = "https://api.example.com/v1"     # OpenAI 兼容根路径，一般含 /v1
+name = "My Upstream Grok"
+env_key = "MY_UPSTREAM_API_KEY"             # 优先用环境变量，勿把 key 写进 git
+api_backend = "responses"                   # chat_completions | responses | messages
+context_window = 128000
+
+# 若希望默认走该上游：
+# [models]
+# default = "my-upstream"
+```
+
+```bash
+export MY_UPSTREAM_API_KEY="sk-..."
+grok models
+grok -m my-upstream -p "ping"
+```
+
+**全局只走一个网关**时，也可用（会切换默认 catalog，与官方模型混用时更建议方式 C 的分段配置）：
+
+```bash
+export GROK_MODELS_BASE_URL="https://api.example.com/v1"
+export XAI_API_KEY="网关签发的 key"
+```
+
+要点：
+
+- 自定义模型配置了 `api_key` / `env_key` 后，**该模型用 key**，不会拿官方 session 去打第三方。  
+- 未配 key 的官方模型仍可用 `grok login` session。  
+- `api_backend`：多数 OpenAI 兼容中转用 `chat_completions`；对齐 xAI / 部分代理时用 `responses`；Anthropic Messages 用 `messages`。  
+- 更完整的第三方上游说明（含 Sub2API 示例、协议对照）：  
+  **[Grok Build 接入第三方 API 上游](https://blog.silascoding.com/ai/grok/third-party-api)**  
+
+Grokodex 侧：装好插件后用 **`grok_setup`** 看本机 `grok` 是否可用；上游是否连通仍以 `grok -m … -p "ping"` / `grok models` 为准。
 
 ---
 
@@ -141,13 +216,14 @@ claude plugin install grokodex@grokodex
 
 ## 首次使用
 
-1. **`grok_setup`** — 检查 `grok` 路径、版本、登录  
-2. **`grok_run`** — 委托任务（默认 `restricted`）  
-3. 生图 → **`grok_imagine`**；查 X → **`grok_x_search`**  
+1. 确认本机 `grok` 可用，且 **鉴权已配好**（OAuth / API Key / 第三方，见 [Grok 鉴权](#grok-鉴权不必只靠-oauth)）  
+2. **`grok_setup`** — 检查 `grok` 路径、版本、本机鉴权探测  
+3. **`grok_run`** — 委托任务（默认 `restricted`）  
+4. 生图 → **`grok_imagine`**；查 X → **`grok_x_search`**  
 
 随插件附带 skills：`grokodex-setup` / `grokodex-run` / `grokodex-imagine` / `grokodex-x-search`。
 
-**硬规则：** 业务能力走 MCP，不要用终端直接跑 `grok` 完成同一任务。
+**硬规则：** 业务任务走 MCP；不要用 shell 旁路 `grok` 完成同一任务。配置鉴权与 `~/.grok/config.toml` 时可用 shell。
 
 ---
 
@@ -155,10 +231,10 @@ claude plugin install grokodex@grokodex
 
 | 工具 | 作用 | 要点 |
 |------|------|------|
-| `grok_setup` | 诊断本机 grok / 登录 | 建议先于其他工具 |
-| `grok_run` | 通用 headless 委托 | 默认 `restricted`；可选 `inherit` |
-| `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images` |
-| `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword` |
+| `grok_setup` | 诊断本机 grok / 鉴权探测 | 建议先于其他工具；不代替配置第三方上游 |
+| `grok_run` | 通用 headless 委托 | 默认 `restricted`；可选 `inherit`；可用 `model` 指定 CLI 模型名 |
+| `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images`；依赖上游是否支持生图 |
+| `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword`；依赖上游/账号能力 |
 
 统一 JSON：`ok: true|false`；失败含稳定 `error.code` 与可选 `hint`。
 
@@ -232,9 +308,21 @@ inherit 解析顺序：参数 `host_sandbox` → 环境变量 → 静态 `~/.cod
 
 ## 环境变量
 
+### Grok / 上游（由 Grok CLI 读取，非 Grokodex 专用）
+
 | 变量 | 含义 |
 |------|------|
-| `GROK_PATH` | 指定 grok 二进制 |
+| `GROK_PATH` | 指定 grok 二进制（Grokodex 也会用） |
+| `XAI_API_KEY` | 官方或网关 API Key（Bearer）；旧名 `GROK_CODE_XAI_API_KEY` 常仍可用 |
+| `GROK_MODELS_BASE_URL` | 全局 OpenAI 兼容网关 base（含 `/v1`） |
+| `GROK_MODELS_LIST_URL` | 可选；模型列表 URL 与 `{base}/models` 不一致时 |
+
+第三方分段模型更建议在 `~/.grok/config.toml` 用 `env_key` 指向你自己的环境变量名（如 `MY_UPSTREAM_API_KEY`）。
+
+### Grokodex bridge
+
+| 变量 | 含义 |
+|------|------|
 | `GROKODEX_DEFAULT_PERMISSION` | 默认权限档（默认 `restricted`） |
 | `GROKODEX_ALLOW_INHERIT` | 是否允许 inherit |
 | `GROKODEX_ALLOW_FULL_ACCESS_INHERIT` | 是否允许 full 级 inherit |
@@ -288,7 +376,8 @@ npm run check:plugin
 ## 限制（非目标）
 
 - 不替换宿主默认模型为 Grok  
-- 无本机 `grok` + 登录则无法工作（含多数 Cloud agent）  
+- 无本机可运行的 **Grok CLI + 可用上游鉴权** 则无法工作（含多数 Cloud agent）；鉴权可以是 OAuth、官方 API Key 或第三方网关，**不强制** `grok login`  
+- 不在 Grokodex 内代管第三方 key / 不替代 `~/.grok/config.toml` 的 Custom Models 配置  
 - 不做完整 Grok TUI / ACP 嵌套 UI  
 - 不把 Grok 每个内置工具都做成独立 MCP tool（其余走 `grok_run`）  
 - 不静默自动提权  
