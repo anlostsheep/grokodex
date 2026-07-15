@@ -33,6 +33,10 @@ export interface GrokodexConfig {
    * Default true (reserved for future failure handling; short path always on).
    */
   narrow_tools_strict: boolean;
+  /** When true, host_thread_id map may --resume (default true). */
+  session_reuse: boolean;
+  /** When true, failed --resume retries without resume (default true). */
+  session_resume_fallback: boolean;
 }
 
 function parseBool(value: string | undefined, defaultValue: boolean): boolean {
@@ -92,5 +96,7 @@ export function loadConfig(
     x_search_timeout_ms: parsePositiveInt(env.GROKODEX_X_SEARCH_TIMEOUT_MS, 90_000),
     imagine_timeout_ms: parsePositiveInt(env.GROKODEX_IMAGINE_TIMEOUT_MS, 120_000),
     narrow_tools_strict: parseBool(env.GROKODEX_NARROW_TOOLS_STRICT, true),
+    session_reuse: parseBool(env.GROKODEX_SESSION_REUSE, true),
+    session_resume_fallback: parseBool(env.GROKODEX_SESSION_RESUME_FALLBACK, true),
   };
 }

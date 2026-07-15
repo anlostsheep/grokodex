@@ -101,4 +101,19 @@ describe("loadConfig", () => {
     expect(c.leader_fallback).toBe(false);
     expect(c.leader_ensure).toBe(false);
   });
+
+  it("defaults session_reuse and session_resume_fallback true", () => {
+    const c = loadConfig({});
+    expect(c.session_reuse).toBe(true);
+    expect(c.session_resume_fallback).toBe(true);
+  });
+
+  it("parses GROKODEX_SESSION_REUSE and FALLBACK", () => {
+    const c = loadConfig({
+      GROKODEX_SESSION_REUSE: "0",
+      GROKODEX_SESSION_RESUME_FALLBACK: "false",
+    });
+    expect(c.session_reuse).toBe(false);
+    expect(c.session_resume_fallback).toBe(false);
+  });
 });

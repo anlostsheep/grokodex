@@ -25,6 +25,8 @@ const baseConfig: GrokodexConfig = {
   x_search_timeout_ms: 90_000,
   imagine_timeout_ms: 120_000,
   narrow_tools_strict: true,
+  session_reuse: true,
+  session_resume_fallback: true,
 };
 
 const xSearchPerm: ResolvedPermission = {
