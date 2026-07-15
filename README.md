@@ -1,228 +1,155 @@
+<div align="center">
+
 # Grokodex
 
-<p align="center">
-  <strong>在 Codex / Claude Code 中调用本机 Grok</strong><br/>
-  委托编码 · Imagine 生图 · 搜索 X
+### 在 Codex / Claude Code 里调用本机 Grok
+
+<p>
+委托编码 · Imagine 生图 · 搜索 X<br/>
+skills + MCP 插件 · 预构建 bundle · Git marketplace 一键安装
 </p>
 
-<p align="center">
-  <a href="https://github.com/anlostsheep/grokodex/stargazers"><img src="https://img.shields.io/github/stars/anlostsheep/grokodex?style=for-the-badge&logo=github" alt="GitHub Stars"/></a>
-  <a href="https://github.com/anlostsheep/grokodex/network/members"><img src="https://img.shields.io/github/forks/anlostsheep/grokodex?style=for-the-badge&logo=github" alt="GitHub Forks"/></a>
-  <a href="https://github.com/anlostsheep/grokodex/issues"><img src="https://img.shields.io/github/issues/anlostsheep/grokodex?style=for-the-badge" alt="Issues"/></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT"/></a>
+<p>
+<a href="https://github.com/anlostsheep/grokodex/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/anlostsheep/grokodex?style=flat&logo=github"></a>
+<a href="https://github.com/anlostsheep/grokodex/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/anlostsheep/grokodex?style=flat&logo=github"></a>
+<a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a"></a>
+<a href="https://github.com/anlostsheep/grokodex/releases/tag/v0.2.0"><img alt="Version" src="https://img.shields.io/badge/version-0.2.0-blue"></a>
+<a href="https://nodejs.org/"><img alt="Node" src="https://img.shields.io/badge/node-%3E%3D18.18-339933?logo=nodedotjs&logoColor=white"></a>
+<img alt="Codex" src="https://img.shields.io/badge/Codex-plugin-412991">
+<img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-plugin-D97706">
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Node.js-≥18.18-339933?logo=nodedotjs&logoColor=white" alt="Node.js"/>
-  <img src="https://img.shields.io/badge/Codex-plugin-412991" alt="Codex"/>
-  <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97706" alt="Claude Code"/>
-  <img src="https://img.shields.io/badge/MCP-stdio-555" alt="MCP"/>
+<p>
+<a href="#核心特性">核心特性</a> ·
+<a href="#快速开始">快速开始</a> ·
+<a href="#grok-鉴权">Grok 鉴权</a> ·
+<a href="#mcp-工具">MCP 工具</a> ·
+<a href="#权限说明">权限说明</a> ·
+<a href="#常见问题">常见问题</a> ·
+<a href="#版本与发版">版本与发版</a>
 </p>
 
----
+</div>
 
-## 项目协议（License）
+> [!NOTE]
+> 本项目以 **[MIT](./LICENSE)** 开源。使用时请遵守 **xAI / Grok**、你所接的第三方上游，以及 **Codex / Claude Code** 各自的服务条款。  
+> Grokodex **不替代** 本机 Grok CLI，只在宿主里通过 MCP 调用它。
 
-本项目以 **[MIT License](./LICENSE)** 开源发布。
-
-| 项 | 说明 |
-|----|------|
-| **协议** | MIT |
-| **版权** | Copyright (c) 2026 Grokodex contributors |
-| **你可以** | 自由使用、复制、修改、合并、发布、再分发、再授权、用于商业用途 |
-| **你必须** | 在副本中保留版权声明与 MIT 许可全文 |
-| **免责** | 软件按「现状」提供，作者不承担任何明示或暗示担保 |
-
-完整法律文本见仓库根目录 [`LICENSE`](./LICENSE)。  
-使用本插件仍须遵守 **上游模型提供方**（xAI 官方、你所接的第三方网关等）以及各宿主（OpenAI Codex、Anthropic Claude Code）的服务条款。
-
----
-
-## 目录
-
-- [项目协议（License）](#项目协议license)
-- [它是什么](#它是什么)
-- [术语说明](#术语说明)
-- [依赖](#依赖)
-- [Grok 鉴权（不必只靠 OAuth）](#grok-鉴权不必只靠-oauth)
-- [安装](#安装推荐公开-git-marketplace)
-- [首次使用](#首次使用)
-- [排障（装上了但超时 / unauthorized）](#排障装上了但超时--unauthorized)
-- [MCP 工具](#mcp-工具)
-- [权限](#权限)
-- [Leader 与会话续作](#leader-与会话续作)
-- [环境变量](#环境变量)
-- [仓库结构](#仓库结构)
-- [本地开发](#本地开发)
-- [版本与发版](#版本与发版)
-- [限制](#限制非目标)
-- [Star History](#star-history)
-- [贡献与支持](#贡献与支持)
-- [许可证](#许可证)
-
----
-
-## 它是什么
-
-| | |
-|--|--|
-| 插件 id | `grokodex` |
-| 形态 | skills + 本地 stdio MCP（预构建 `bridge/dist/bundle.mjs`） |
-| 安装 | Git marketplace（推荐）或本仓库开发脚本 |
-| 默认权限 | **`restricted`（受限）**：Grok 可在当前项目目录读写，但高危 shell 会被拒绝；见 [术语说明](#术语说明) |
-
-**宿主**（Codex / Claude Code）负责编排；**Grok** 是被调用的 worker。能力走 **MCP 工具**；不要用 shell 旁路 `grok` 完成业务任务（安装 CLI、改 `~/.grok/config.toml`、配置鉴权除外）。
+**当前版本 [0.2.0](./CHANGELOG.md)** · 插件 id：`grokodex` · 仓库：[`anlostsheep/grokodex`](https://github.com/anlostsheep/grokodex)
 
 ```
-Codex / Claude Code          ← 宿主（你当前用的 AI 编程客户端）
-        │  skills + MCP
-        ▼
-  grokodex-bridge (node)     ← 本插件：把宿主的工具调用转成 grok 命令
-        │
-        ▼
-  本机 Grok Build CLI（grok）
-        │
-        ├── 官方 session（grok login）和/或
-        ├── XAI_API_KEY 官方 API Key 和/或
-        └── 第三方 / 自建 OpenAI 兼容上游（config.toml）
+Codex / Claude Code  ──skills + MCP──►  grokodex-bridge (node)
+                                              │
+                                              ▼
+                                       本机 grok CLI
+                                    （官方 / API Key / 第三方上游）
 ```
 
 ---
 
-## 术语说明
+## 核心特性
 
-下文会反复出现这些词。**不需要先全部背会**；装插件、先 `grok_setup` 即可。需要调权限或排障时再查本表。
-
-### 角色与组件
-
-| 术语 | 含义（白话） |
-|------|----------------|
-| **宿主（host）** | 你正在用的客户端，如 **Codex**、**Claude Code**。它发起任务、展示结果。 |
-| **Grok / Grok Build / `grok`** | xAI 的本机编码 agent CLI（命令行程序）。Grokodex **不替代**它，只是帮宿主去调用它。 |
-| **插件 / plugin** | 装进宿主的扩展包；本项目的插件 id 是 `grokodex`。 |
-| **marketplace** | 插件「商店/目录」。本仓库是 **Git marketplace**（用 GitHub 地址添加），不是 OpenAI/Anthropic 官方默认商店。 |
-| **MCP** | Model Context Protocol。宿主通过 MCP 调用外部工具；Grokodex 以 **stdio**（标准输入输出）方式起一个本机 Node 进程。 |
-| **bridge / 桥接** | 仓库里的 `bridge/`：实现 MCP 四工具（setup/run/imagine/x_search），内部再去执行 `grok`。 |
-| **skill** | 给宿主 AI 看的说明书（何时调用哪个 MCP 工具）。本插件带 `grokodex-setup` 等四套。 |
-| **上游 / upstream** | 真正提供模型算力的一端：xAI 官方、或你配置的第三方/自建 API 网关。 |
-| **鉴权 / 登录态 / session** | 证明「可以代表你调用 Grok 上游」的凭证。可以是 `grok login` 的会话、`XAI_API_KEY`、或第三方 key——**不必只有 OAuth**。 |
-| **OAuth / `grok login`** | 浏览器授权登录官方账号的一种方式；**可选**，不是唯一方式。 |
-
-### 权限相关（`permission_mode` / sandbox）
-
-调用 `grok_run` 时，用参数 **`permission_mode`** 控制 Grok 能有多大胆。
-
-| 术语 | 含义（白话） | 什么时候用 |
-|------|----------------|------------|
-| **`restricted`（受限，默认）** | **默认档**。Grok 大致可在**当前工作区**读写文件，完成常规改代码；但 **高危 shell**（破坏性/越权类命令策略）会被 **硬拒绝**；也 **不会**打开「一律自动批准」类抬权。适合日常委托、第二意见、常规实现。 | **绝大多数情况**：不传 `permission_mode` 即为此档。 |
-| **`inherit`（继承宿主）** | 尽量让 Grok 的能力档 **贴近当前宿主会话**（例如宿主已是 Full Access 时，才可能给 Grok 更高能力）。**必须由用户明确要求**（「和 Codex/Claude 同权」「Full Access」等）；**禁止**因为任务难就自动改用 inherit。 | 仅当用户明确要求同权/抬权时。 |
-| **`host_sandbox`（宿主能力档）** | 使用 `inherit` 时，告诉桥接「宿主现在大概是哪一档权限」的标签。MCP 子进程通常 **读不到** 宿主会话的实时权限，所以要靠参数或环境变量传入。 | 与 `inherit` 一起用；缺了可能得到 `INHERIT_UNAVAILABLE`。 |
-| **`read-only`** | `host_sandbox` 取值之一：只读——Grok 侧应避免改文件。 | 宿主本身是只读沙箱时。 |
-| **`workspace-write`** | 可写当前工作区——与默认 `restricted` 的能力档接近。 | 宿主允许改项目文件时。 |
-| **`danger-full-access`** | 近似「全开」：会抬权并启用 always-approve 一类行为，但仍保留部分绝对禁令。费用与风险都更高。 | 仅用户明确 Full-Access / 同宿主最高权时。 |
-| **`codex_sandbox`** | **`host_sandbox` 的旧别名**（兼容早期命名）。两字段同时传且不一致 → 报错 `INVALID_ARGS`。新集成请用 `host_sandbox`。 |
-| **`always-approve`** | Grok/CLI 侧一种「少问确认、多自动批准」的行为；主要在 full 类档位出现。不是你日常默认。 | 理解 `danger-full-access` 时知道有这层含义即可。 |
-| **`INHERIT_UNAVAILABLE`** | 错误码：选了 `inherit`，但桥接 **不知道** 宿主能力档（没传 `host_sandbox` 等），**不会**偷偷当成 full。 | 改为 `restricted`，或补上正确的 `host_sandbox`。 |
-
-**一句话记权限：**  
-默认 **`restricted` = 能干活但有护栏**；**`inherit` = 跟宿主同权，仅用户点名，且要说清 `host_sandbox`**。
-
-### 运行方式：Leader 与会话
-
-| 术语 | 含义（白话） |
-|------|----------------|
-| **headless** | 无完整 TUI 界面，用命令行方式跑一轮/多轮 Grok agent（Grokodex 的主路径）。 |
-| **Leader（暖进程）** | 本机常驻的 Grok 后台进程，避免每次冷启动。默认 **开启**。官方路径下它依赖有效登录态；态坏了会出现 `User unauthorized` 等（见 [排障](#排障装上了但超时--unauthorized)）。 |
-| **one-shot** | 不经过 leader，每次单独拉起 `grok`。设 `GROKODEX_USE_LEADER=0` 即强制此模式。 |
-| **fallback** | leader 失败时是否退回 one-shot（默认会退）。 |
-| **会话续作 / session reuse** | 多轮 `grok_run` 尽量 **接着同一条 Grok 对话**（CLI `--resume`），而不是每轮全新聊天。 |
-| **`host_thread_id`** | 宿主侧「这一次任务/线程」的 id。传给 `grok_run` 后，桥接用来查找是否已有可 resume 的 Grok 会话。建议格式：`codex:<id>` / `claude:<id>`。 |
-| **`session_id`** | Grok 侧会话 id（响应里也会返回）。一般交给 bridge 管理；高级用法可显式传入做 `--resume`。 |
-| **`fresh: true`** | 强制新开 Grok 会话，不接着旧对话。换话题、宿主 `/clear` 后可用。 |
-| **权限指纹** | bridge 根据权限档等算出的标记。同 `host_thread_id` 但权限档变了（如 restricted→inherit）会开新 Grok 会话，避免「低权对话里突然高权」的混乱。 |
-
-**Leader ≠ 会话续作：**  
-Leader = 进程是否暖着；会话续作 = 聊的是不是同一条 thread。两者独立。
-
-### 工具与协议里常见字段
-
-| 术语 | 含义（白话） |
-|------|----------------|
-| **`grok_setup` / `grok_run` / `grok_imagine` / `grok_x_search`** | 四个 MCP **工具名**（逻辑名）。Claude 界面可能显示成 `mcp__…__grok_run`，本质相同。 |
-| **`ok` / `error.code` / `hint`** | 统一返回包：`ok` 是否成功；失败时 `error.code` 稳定错误码，`hint` 给人看的建议。 |
-| **`meta.leader` / `meta.session`** | 响应里的诊断信息：leader 是否用上、是否 resume 等。排障时优先看这两块。 |
-| **stdio** | 进程用标准输入输出通信（相对 HTTP MCP）。公开安装里即：`node` 跑 `bundle.mjs`。 |
-| **`bundle.mjs`** | 预构建的单文件 bridge，用户 **不必** 为启动 MCP 再 `npm install`。 |
-| **PATH** | 系统「可执行文件搜索路径」。公开安装用命令名 `node` / `grok`，要求它们在 PATH 里。 |
+| 能力 | 说明 |
+| :-- | :-- |
+| 双宿主插件 | **Codex** 与 **Claude Code** 同一 monorepo，Git marketplace 安装 |
+| 四工具 MCP | `grok_setup` / `grok_run` / `grok_imagine` / `grok_x_search` |
+| 四套 skills | 引导何时调工具；默认 **受限权限**（`restricted`） |
+| 预构建 bundle | 提交 `plugins/grokodex/bridge/dist/bundle.mjs`，用户 **无需** `npm install` |
+| 鉴权灵活 | 官方 `grok login`、**或** `XAI_API_KEY`、**或** 第三方/自建 OpenAI 兼容上游 |
+| Leader 暖进程 | 默认开启，加速 headless；可关 |
+| 会话续作 | 可选 `host_thread_id`，多轮 `grok_run` 接同一 Grok 对话 |
+| Claude 路径正确 | ≥0.2.0 使用 `${CLAUDE_PLUGIN_ROOT}`，避免相对路径指到会话工作区 |
 
 ---
 
-## 依赖
+## 快速开始
+
+### 1. 前置依赖
 
 | 依赖 | 说明 |
-|------|------|
-| **Node.js 18.18+** | 必须在 **PATH** 上（公开安装使用 `command: "node"`） |
-| **Grok CLI（Grok Build）** | `grok` 在 PATH，或设置 `GROK_PATH` |
-| **可用的 Grok 上游鉴权** | **任选其一或组合**：官方 `grok login`、官方 `XAI_API_KEY`、或第三方/自建 API（见下节） |
+| :-- | :-- |
+| **Node.js ≥ 18.18** | 必须在 **PATH**（公开安装用命令名 `node`） |
+| **Grok CLI** | [安装脚本](https://x.ai/cli) / `grok` 在 PATH，或设 `GROK_PATH` |
+| **可用上游鉴权** | 见 [Grok 鉴权](#grok-鉴权)（**不强制** 只做 OAuth） |
 | **Codex 和/或 Claude Code** | 支持 plugin marketplace 的本机版本 |
 
-安装 Grok CLI（**只装 CLI，鉴权见下一节**）：
-
 ```bash
-# macOS / Linux / WSL
+# macOS / Linux / WSL — 仅安装 CLI
 curl -fsSL https://x.ai/cli/install.sh | bash
-```
 
-```powershell
-# Windows
+# Windows PowerShell
 irm https://x.ai/cli/install.ps1 | iex
 ```
 
-不捆绑 `grok` 二进制。预构建 MCP 已随仓库提交，**普通用户安装无需** `npm install`。
+### 2. 安装插件（Git marketplace）
+
+**Codex**
+
+```bash
+codex plugin marketplace add anlostsheep/grokodex
+codex plugin add grokodex@grokodex
+# 钉版本示例：
+# codex plugin marketplace add anlostsheep/grokodex --ref v0.2.0
+```
+
+完全退出并重启 Codex App → 确认插件已启用 → 新会话。
+
+**Claude Code**
+
+```bash
+claude plugin marketplace add anlostsheep/grokodex
+claude plugin install grokodex@grokodex
+```
+
+重启 / 新会话 → `/mcp` 或 `/plugins` 确认 **插件内** MCP `connected`。
+
+> [!TIP]
+> 若提示 *MCP skipped – same command/URL as already-configured "grokodex"*：说明还有**另一条**手写/项目 `.mcp.json` 或旧 MCP 与插件抢名字。关掉或删除重复的 `grokodex` MCP，只留插件那条，再新开会话。
+
+### 3. 第一次调用
+
+1. 终端确认 Grok 可用：`grok whoami` 或 `grok -m <模型> -p "ping"`  
+2. 宿主里调用 **`grok_setup`**  
+3. 再 **`grok_run`**（例如 prompt：`Reply with exactly: pong`）  
+4. 生图 → `grok_imagine`；搜 X → `grok_x_search`  
+
+**业务任务请走 MCP**，不要用 shell 旁路 `grok`（装 CLI / 改 `~/.grok/config.toml` / 登录除外）。
+
+### 4. 本地开发安装（可选）
+
+改本仓库代码时：
+
+```bash
+./scripts/install-codex-plugin.sh    # → personal marketplace
+./scripts/install-claude-plugin.sh   # → grokodex-local
+# 可选：--no-build / --no-leader
+```
 
 ---
 
-## Grok 鉴权（不必只靠 OAuth）
+## Grok 鉴权
 
-Grokodex 只调用本机 **Grok Build CLI**。CLI 如何连上游，由 **Grok 自己的配置**决定——**不是**「必须 `grok login` 浏览器 OAuth」。
+Grokodex 只调本机 **Grok Build CLI**。上游怎么连，由 **Grok 自己的配置**决定——**不必**只能 `grok login`。
 
-常见三种方式（可并存）：
+| 方式 | 适用 | 做法 |
+| :-- | :-- | :-- |
+| **A. 官方 session** | xAI 订阅 / 官方账号 | `grok login` → `~/.grok/auth.json` |
+| **B. 官方 API Key** | 控制台 Key | `export XAI_API_KEY=...`（旧名 `GROK_CODE_XAI_API_KEY` 常仍可用） |
+| **C. 第三方 / 自建** | OpenAI 兼容中转、Sub2API 等 | `~/.grok/config.toml` 写 `[model.*]`，或 `GROK_MODELS_BASE_URL` + key |
 
-| 方式 | 适用 | 怎么做 |
-|------|------|--------|
-| **A. 官方 session** | xAI 订阅 / 官方账号 | `grok login` → session 写入 `~/.grok/auth.json` |
-| **B. 官方 API Key** | xAI 控制台发的 key | 环境变量 `XAI_API_KEY`（旧名 `GROK_CODE_XAI_API_KEY` 也常被识别） |
-| **C. 第三方 / 自建上游** | OpenAI 兼容中转、Sub2API、自建网关等 | 在 `~/.grok/config.toml` 写 `[model.*]`（`base_url` + key），或全局 `GROK_MODELS_BASE_URL` + key |
-
-### A. 官方 OAuth / 登录（可选）
-
-```bash
-grok login
-```
-
-### B. 官方 API Key（可不 login）
-
-```bash
-export XAI_API_KEY="xai-..."   # 勿提交到 git
-grok -p "ping"
-```
-
-### C. 第三方 API（推荐写法：按模型分段）
-
-在 `~/.grok/config.toml` 增加自定义模型（字段以本机 `grok` 用户手册 **Custom Models** 为准，常见路径：`~/.grok/docs/user-guide/11-custom-models.md`）：
+**C 示例（推荐按模型分段）：**
 
 ```toml
 # ~/.grok/config.toml
 
 [model.my-upstream]
-model = "grok-4.5"                          # 发给上游的 model id
-base_url = "https://api.example.com/v1"     # OpenAI 兼容根路径，一般含 /v1
+model = "grok-4.5"
+base_url = "https://api.example.com/v1"
 name = "My Upstream Grok"
-env_key = "MY_UPSTREAM_API_KEY"             # 优先用环境变量，勿把 key 写进 git
-api_backend = "responses"                   # chat_completions | responses | messages
+env_key = "MY_UPSTREAM_API_KEY"
+api_backend = "responses"   # chat_completions | responses | messages
 context_window = 128000
 
-# 若希望默认走该上游：
 # [models]
 # default = "my-upstream"
 ```
@@ -233,269 +160,99 @@ grok models
 grok -m my-upstream -p "ping"
 ```
 
-**全局只走一个网关**时，也可用（会切换默认 catalog，与官方模型混用时更建议方式 C 的分段配置）：
-
-```bash
-export GROK_MODELS_BASE_URL="https://api.example.com/v1"
-export XAI_API_KEY="网关签发的 key"
-```
-
-要点：
-
-- 自定义模型配置了 `api_key` / `env_key` 后，**该模型用 key**，不会拿官方 session 去打第三方。  
-- 未配 key 的官方模型仍可用 `grok login` session。  
-- `api_backend`：多数 OpenAI 兼容中转用 `chat_completions`；对齐 xAI / 部分代理时用 `responses`；Anthropic Messages 用 `messages`。  
-- 更完整的第三方上游说明（含 Sub2API 示例、协议对照）：  
-  **[Grok Build 接入第三方 API 上游](https://blog.silascoding.com/ai/grok/third-party-api)**  
-
-Grokodex 侧：装好插件后用 **`grok_setup`** 看本机 `grok` 是否可用；上游是否连通仍以 `grok -m … -p "ping"` / `grok models` 为准。
-
----
-
-## 安装（推荐：公开 Git marketplace）
-
-仓库：[`anlostsheep/grokodex`](https://github.com/anlostsheep/grokodex)  
-marketplace 名与插件名均为 **`grokodex`**。
-
-### Codex
-
-```bash
-codex plugin marketplace add anlostsheep/grokodex
-codex plugin add grokodex@grokodex
-```
-
-1. 完全退出并重启 Codex App（或新开 CLI 会话）  
-2. 确认插件已启用  
-3. 调用 **`grok_setup`**，再使用其他工具  
-
-### Claude Code
-
-```bash
-claude plugin marketplace add anlostsheep/grokodex
-claude plugin install grokodex@grokodex
-```
-
-1. 重启 Claude Code / 新开会话  
-2. `/mcp` 确认四工具（名称可能带 `mcp__…` 前缀）  
-3. 先调 **`grok_setup`**  
-
-### 更新 / 钉版本
-
-按各宿主 CLI 刷新 marketplace 并更新插件即可。也可钉到 git tag（与 `package.json` 版本一致，见 [版本与发版](#版本与发版)）：
-
-```bash
-# 示例：安装 0.2.0 对应提交
-codex plugin marketplace add anlostsheep/grokodex --ref v0.2.0
-codex plugin add grokodex@grokodex
-```
-
----
-
-## 首次使用
-
-1. 确认本机 `grok` 可用，且 **鉴权已配好**（OAuth / API Key / 第三方，见 [Grok 鉴权](#grok-鉴权不必只靠-oauth)）  
-2. **`grok_setup`** — 检查 `grok` 路径、版本、本机鉴权探测  
-3. **`grok_run`** — 委托任务（默认 `restricted`）  
-4. 生图 → **`grok_imagine`**；查 X → **`grok_x_search`**  
-
-随插件附带 skills：`grokodex-setup` / `grokodex-run` / `grokodex-imagine` / `grokodex-x-search`。
-
-**硬规则：** 业务任务走 MCP；不要用 shell 旁路 `grok` 完成同一任务。配置鉴权与 `~/.grok/config.toml` 时可用 shell。
-
----
-
-## 排障（装上了但超时 / unauthorized）
-
-Grokodex **只负责**在宿主里调用本机 `grok`。插件 marketplace 装成功 ≠ 上游鉴权健康。下面这类现象多半是 **Grok CLI / 官方会话** 问题，而不是「插件没装上」。
-
-### 常见症状
-
-| 你看到的 | 更可能的原因 |
-|----------|----------------|
-| 工具长时间卡住，最后超时 / MCP `-32000` | bridge 在等 headless；leader 或 `grok` 起不来 / 鉴权被拒 |
-| Grok 日志：`relay_connected wss://code.grok.com/...` 随后 `WS close … User unauthorized`，再无限 `Reconnecting...` | **能连上网**，但 **官方会话/token 无效**，不是代理问题 |
-| `grok whoami` → `Device not configured` | 设备/登录态未就绪或 session 失效（与上面同类） |
-| `grok_setup` 显示 `auth_ok` / auth file present，但任务仍失败 | 探测目前主要看 **`~/.grok/auth.json` 是否存在且非空**，**不能**证明 session 仍被官方接受 |
-
-### 先在本机终端自检（不要只在宿主里重试）
-
-```bash
-grok --version
-grok whoami          # 不应是 Device not configured
-# 若走官方模型：
-# grok logout && grok login    # 完整走完浏览器授权后再测
-# 若走第三方模型：
-# grok -m <你的模型名> -p "ping"
-```
-
-再看 leader 日志（若开启 leader）：是否出现 `User unauthorized`、是否在重连死循环。
-
-### 按场景处理
-
-**1）走 xAI 官方（OAuth / 官方 catalog）**
-
-```bash
-grok logout    # 可选，清掉坏 session
-grok login     # 必须完整成功
-grok whoami    # 确认正常
-```
-
-然后 **完全退出并重启** Codex App / Claude Code，新开会话再调 `grok_setup` → `grok_run`。
-
-**2）走第三方 / API Key（不依赖 code.grok.com session）**
-
-1. 按 [Grok 鉴权](#grok-鉴权不必只靠-oauth) 配好 `~/.grok/config.toml` 或 `XAI_API_KEY` / `GROK_MODELS_BASE_URL`  
-2. 终端：`grok -m <模型> -p "ping"` 必须成功  
-3. 若本机仍残留 **坏掉的官方 session**，默认 **leader** 仍可能去连 `code.grok.com` 并被 `User unauthorized` 踢掉，表现为 Grokodex 超时：  
-   - 要么重新 `grok login` 修好官方态，或  
-   - 临时关闭 leader，强制 one-shot：
-
-```bash
-# MCP 环境变量（公开树默认 USE_LEADER=1；本机可改插件 .mcp.json 或重装脚本）
-GROKODEX_USE_LEADER=0
-```
-
-本地脚本：`./scripts/install-*-plugin.sh --no-leader`。
-
-**3）Claude Code：MCP 进程秒退 / 找不到 bundle（路径解析）**
-
-公开插件 **≥ 0.2.0** 的 `.mcp.json` 使用：
-
-```text
-${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs
-```
-
-**不要**依赖 `"cwd": "."` + `./bridge/...`：Claude Code 会把相对路径解析成**当前会话工作区**（例如 `/Users/你`），而不是插件目录，导致 `bundle.mjs` 找不到、MCP 握手失败。
-
-若仍装到旧版（0.1.x 相对路径）：请更新 marketplace 到 **v0.2.0+** 或重装插件。
-
-**4）确认不是「装错插件副本」**
-
-- 改仓库代码后要重新 `marketplace` 更新 / 跑 install 脚本；**源码目录 ≠ 宿主正在加载的插件**  
-- Node 18.18+ 必须在 **PATH**（公开安装使用 `command: "node"`）
-
-### 和代理的关系
-
-若日志已有 **`relay_connected`** 到 `wss://code.grok.com/...`，说明到官方 WS 的链路是通的；再出现 **`User unauthorized`** 应优先查 **登录/授权**，而不是先折腾系统代理。
-
-### 给宿主里的 AI 的提示
-
-用户报告超时时：先让用户在终端跑 `grok whoami` / 看 leader 是否 `unauthorized`，再决定 `grok login`、修第三方配置或 `GROKODEX_USE_LEADER=0`；不要默认让用户反复重装 Grokodex 插件。
+> [!IMPORTANT]
+> - 自定义模型配了 `api_key` / `env_key` 后，**该模型用 key**，不会拿官方 session 打第三方。  
+> - Key **不要**提交 git；优先 `env_key`。  
+> - 完整第三方上游说明：[Grok Build 接入第三方 API](https://blog.silascoding.com/ai/grok/third-party-api)（以本机 `~/.grok/docs` 为准）。
 
 ---
 
 ## MCP 工具
 
-| 工具 | 作用 | 要点 |
-|------|------|------|
-| `grok_setup` | 诊断本机 grok / 鉴权探测 | 建议先于其他工具；`auth file present` ≠ session 一定有效 |
-| `grok_run` | 通用 headless 委托 | 默认 `restricted`；可选 `inherit`；可用 `model` 指定 CLI 模型名 |
-| `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images`；依赖上游是否支持生图 |
-| `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword`；依赖上游/账号能力 |
+| 工具 | 作用 | 说明 |
+| :-- | :-- | :-- |
+| `grok_setup` | 诊断本机 grok | 路径 / 版本 / 鉴权探测；建议先调。`auth file present` **≠** session 一定有效 |
+| `grok_run` | 通用 headless 委托 | 默认 **受限**（`restricted`）；可显式 `inherit`；可传 `model` |
+| `grok_imagine` | Imagine 生图 | 窄权限；产物默认 `.grokodex/images` |
+| `grok_x_search` | X / Twitter 搜索 | 只读；`semantic` / `keyword` |
 
-统一 JSON：`ok: true|false`；失败含稳定 `error.code` 与可选 `hint`。
+统一 JSON：`ok` + 失败时 `error.code` / `hint`。Claude 界面可能显示 `mcp__…__grok_run`，逻辑名仍是上表。
 
 ### `grok_run` 常用参数
 
 | 参数 | 说明 |
-|------|------|
-| `prompt` | **必填** |
+| :-- | :-- |
+| `prompt` | **必填**，任务描述 |
 | `cwd` | 工作目录（默认宿主工作区） |
-| `permission_mode` | 权限档：`restricted`（**受限，默认**）或 `inherit`（**继承宿主**）；见 [术语](#权限相关permission_mode--sandbox) |
-| `host_sandbox` | 仅 `inherit` 时需要：宿主能力档 `read-only` / `workspace-write` / `danger-full-access` |
-| `host_thread_id` | 宿主线程 id，用于 **会话续作**（多轮接着聊） |
-| `fresh` | `true` = 强制新 Grok 会话，不 resume |
-| `session_id` | 高级：显式指定 Grok 会话 id（一般可省略） |
-| `model` / `max_turns` / `timeout_ms` / `extra_rules` | 可选：模型名、轮数上限、超时毫秒、附加规则 |
+| `permission_mode` | `restricted`（默认）或 `inherit`（继承宿主，需用户明确要求） |
+| `host_sandbox` | 仅 `inherit`：`read-only` / `workspace-write` / `danger-full-access` |
+| `host_thread_id` | 宿主线程 id，用于多轮续聊（如 `codex:<id>` / `claude:<id>`） |
+| `fresh` | `true` 强制新 Grok 会话 |
+| `session_id` | 高级：显式 Grok 会话 id |
+| `model` / `max_turns` / `timeout_ms` / `extra_rules` | 可选 |
 
-`codex_sandbox` = `host_sandbox` 的兼容别名；两字段同时传且不一致 → `INVALID_ARGS`。
+`codex_sandbox` 是 `host_sandbox` 的旧别名；两字段冲突 → `INVALID_ARGS`。
+
 ---
 
-## 权限
+## 权限说明
 
-术语定义见 [术语说明 · 权限相关](#权限相关permission_mode--sandbox)。此处说明 **怎么用**。
+| 档位 | 白话 | 何时用 |
+| :-- | :-- | :-- |
+| **`restricted`（默认）** | 可在当前项目读写；高危 shell **拒绝**；不自动 always-approve | **日常默认**；不传参数即此档 |
+| **`inherit`** | 尽量跟当前宿主会话同权 | 仅用户明确说「同权 / Full Access」；**禁止**因任务难自动抬权 |
 
-### 两档：`permission_mode`
+`inherit` 时必须能解析 **`host_sandbox`**（参数 → 环境变量 → 可选读 Codex 配置），否则 `INHERIT_UNAVAILABLE`，**不会**静默 full。
 
-| 档位 | 中文理解 | 何时用 | 行为摘要 |
-|------|----------|--------|----------|
-| **`restricted`** | **受限（默认）** | 日常委托、第二意见、常规改代码 | 可在当前工作区读写；高危 shell 硬拒绝；不 always-approve。**不传该参数 = 此档。** |
-| **`inherit`** | **继承宿主** | 用户 **明确** 说「和宿主同权 / Full Access」 | 按 `host_sandbox` 映射能力；**禁止**因任务难自动改用此档 |
+| `host_sandbox` | 含义 |
+| :-- | :-- |
+| `read-only` | 只读 |
+| `workspace-write` | 工作区可写（接近默认 restricted） |
+| `danger-full-access` | 高危全开；费用与风险高，仅明确要求时用 |
 
-`grok_imagine` / `grok_x_search` **固定窄权限**，**永不** `inherit` 完整 shell。
+`grok_imagine` / `grok_x_search` **永不**完整 shell inherit。
 
-### `inherit` 时如何填 `host_sandbox`
-
-桥接进程通常拿不到宿主「此刻」的实时权限，所以要显式告诉它：
-
-| `host_sandbox` | 中文 | 近似效果 |
-|----------------|------|----------|
-| `read-only` | 只读 | 禁止 edit/write 类 |
-| `workspace-write` | 工作区可写 | 与默认 `restricted` 同级 |
-| `danger-full-access` | 高危全开 | 抬权 + always-approve；仍有绝对禁令 |
-
-**解析顺序：**  
-调用参数 `host_sandbox`（或兼容别名 `codex_sandbox`）→ 环境变量 `GROKODEX_HOST_SANDBOX` / `GROKODEX_CODEX_SANDBOX` → 静态读 `~/.codex/config.toml`（仅可能对 Codex 有用）→ 仍未知则 **`INHERIT_UNAVAILABLE`**（**不会**静默当成 full）。
-
-> **警告：** `danger-full-access` / Full-Access 费用与破坏力更高，仅在用户明确要求时使用。
 ---
 
 ## Leader 与会话续作
 
-### Leader（暖进程，默认开）
+| 概念 | 白话 | 默认 |
+| :-- | :-- | :-- |
+| **Leader** | 本机 Grok 暖进程，少冷启动 | 开（`GROKODEX_USE_LEADER=1`） |
+| **one-shot** | 每次单独起 `grok` | `GROKODEX_USE_LEADER=0` 或 install `--no-leader` |
+| **会话续作** | 多轮 `grok_run` 接同一 Grok 对话（`--resume`） | 开；传 `host_thread_id` |
 
-术语：**Leader** = 本机预热的 Grok 后台；**one-shot** = 每次单独启动。见 [术语 · Leader 与会话](#运行方式leader-与会话)。
-
-| 环境变量 | 默认 | 含义 |
-|----------|------|------|
-| `GROKODEX_USE_LEADER` | true | 使用 leader；`0`/`false` = 强制 **one-shot** |
-| `GROKODEX_LEADER_FALLBACK` | true | leader 失败时退回 one-shot |
-| `GROKODEX_LEADER_ENSURE` | true | socket 不可用时尝试拉起 leader |
-
-排障看响应里的 `meta.leader`。本地脚本可用 `--no-leader`。  
-
-官方路径下 leader 依赖有效登录态；session 失效时可能出现 WS `User unauthorized` 与超时——见 [排障](#排障装上了但超时--unauthorized)。
-
-### 会话续作（session reuse）
-
-术语：**会话续作** = 多轮 `grok_run` 尽量接着同一条 Grok 对话（`--resume`），不是每轮新开聊天。
-
-多轮同一任务时传入 **`host_thread_id`**，权限档一致时 bridge 会对 Grok 做 resume：
-
-| 宿主 | 建议写法 |
-|------|----------|
-| Codex | 读环境变量 `CODEX_THREAD_ID`，传 `host_thread_id=codex:<该值>` |
-| Claude Code | 读 `CLAUDE_CODE_SESSION_ID`，传 `host_thread_id=claude:<该值>` |
-
-**Leader ≠ 会话续作**（进程暖 vs 对话连续）。换话题或宿主 `/clear` 后请重读 id，或设 `fresh: true`。排障看 `meta.session`。
+**Leader ≠ 会话续作**（进程是否暖 vs 聊的是否同一条 thread）。
 
 | 环境变量 | 默认 | 含义 |
-|----------|------|------|
-| `GROKODEX_SESSION_REUSE` | true | 启用按 `host_thread_id` 的 resume |
-| `GROKODEX_SESSION_RESUME_FALLBACK` | true | resume 失败则去掉 resume 再试一次 |
+| :-- | :-- | :-- |
+| `GROKODEX_USE_LEADER` | true | 是否用 leader |
+| `GROKODEX_LEADER_FALLBACK` | true | leader 失败是否 one-shot |
+| `GROKODEX_LEADER_ENSURE` | true | 是否尝试拉起 leader |
+| `GROKODEX_SESSION_REUSE` | true | 是否按 host map resume |
+| `GROKODEX_SESSION_RESUME_FALLBACK` | true | resume 失败是否去掉 resume 重试 |
+
+Codex 建议 `host_thread_id=codex:$CODEX_THREAD_ID`；Claude 建议 `claude:$CLAUDE_CODE_SESSION_ID`。
 
 ---
 
-## 环境变量
+## 环境变量（摘要）
 
-### Grok / 上游（由 Grok CLI 读取，非 Grokodex 专用）
+**Grok CLI / 上游（非 Grokodex 独有）**
 
-| 变量 | 含义 |
-|------|------|
-| `GROK_PATH` | 指定 grok 二进制（Grokodex 也会用） |
-| `XAI_API_KEY` | 官方或网关 API Key（Bearer）；旧名 `GROK_CODE_XAI_API_KEY` 常仍可用 |
-| `GROK_MODELS_BASE_URL` | 全局 OpenAI 兼容网关 base（含 `/v1`） |
-| `GROK_MODELS_LIST_URL` | 可选；模型列表 URL 与 `{base}/models` 不一致时 |
+| 变量 | 说明 |
+| :-- | :-- |
+| `GROK_PATH` | grok 二进制路径 |
+| `XAI_API_KEY` | 官方或网关 API Key |
+| `GROK_MODELS_BASE_URL` | 全局 OpenAI 兼容 base（含 `/v1`） |
+| `GROK_MODELS_LIST_URL` | 可选，模型列表 URL |
 
-第三方分段模型更建议在 `~/.grok/config.toml` 用 `env_key` 指向你自己的环境变量名（如 `MY_UPSTREAM_API_KEY`）。
+**Grokodex bridge**
 
-### Grokodex bridge
-
-| 变量 | 含义 |
-|------|------|
+| 变量 | 说明 |
+| :-- | :-- |
 | `GROKODEX_DEFAULT_PERMISSION` | 默认权限档（默认 `restricted`） |
 | `GROKODEX_ALLOW_INHERIT` | 是否允许 inherit |
-| `GROKODEX_ALLOW_FULL_ACCESS_INHERIT` | 是否允许 full 级 inherit |
 | `GROKODEX_HOST_SANDBOX` | inherit 时宿主能力档 |
 | `GROKODEX_X_SEARCH_TIMEOUT_MS` | 默认 `90000` |
 | `GROKODEX_IMAGINE_TIMEOUT_MS` | 默认 `120000` |
@@ -505,35 +262,15 @@ ${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs
 ## 仓库结构
 
 ```text
-plugins/grokodex/     # 公开可安装单元（含预构建 bundle，git 跟踪）
-.agents/plugins/      # Codex marketplace
-.claude-plugin/       # Claude marketplace
-bridge/               # MCP bridge 源码
-skills/               # 共享 skills
-hosts/                # 宿主 manifest / MCP 模板
-scripts/              # package / 本地 install / 一致性检查
-LICENSE               # MIT 协议全文
-```
-
-公开 MCP：
-
-- **Claude Code**：`.mcp.json` → `${CLAUDE_PLUGIN_ROOT}/bridge/dist/bundle.mjs`（避免相对路径被解析成会话 cwd）  
-- **Codex**：`.mcp.codex.json` → `./bridge/dist/bundle.mjs` + `cwd: "."`（由 Codex plugin 清单指向）  
-- `command` 均为 PATH 上的 `node`，**无**本机绝对路径  
-
----
-
-## 本地开发
-
-clone 后改代码时用脚本装到本机（先 package，再同步；绝对路径 `node` 只写本机，不写回公开树）：
-
-```bash
-# Codex → personal marketplace
-./scripts/install-codex-plugin.sh
-# 可选：--no-build / --no-leader
-
-# Claude Code → grokodex-local
-./scripts/install-claude-plugin.sh
+plugins/grokodex/          # 公开可安装单元（提交 git）
+  .mcp.json                # Claude：CLAUDE_PLUGIN_ROOT
+  .mcp.codex.json          # Codex：相对路径
+  bridge/dist/bundle.mjs
+  skills/ assets/
+.agents/plugins/           # Codex marketplace 清单
+.claude-plugin/            # Claude marketplace 清单
+bridge/ skills/ hosts/     # 开发源
+scripts/                   # package / install / release
 ```
 
 ---
@@ -541,58 +278,79 @@ clone 后改代码时用脚本装到本机（先 package，再同步；绝对路
 ## 版本与发版
 
 | 项 | 约定 |
-|----|------|
-| **唯一版本源** | 根目录 `package.json` 的 `"version"`（SemVer） |
-| **同步位置** | `plugins/grokodex` 内两边 `plugin.json`、Claude marketplace `metadata.version` / 插件条目（由组装脚本写入） |
-| **Git tag** | `v` + 版本号，如 `v0.2.0`（便于 `marketplace add --ref`） |
-| **变更记录** | [`CHANGELOG.md`](./CHANGELOG.md) |
-
-### 日常改代码（不升版本）
+| :-- | :-- |
+| 唯一版本源 | `package.json` → `"version"` |
+| 同步 | `npm run package:plugin` 写入插件与 marketplace |
+| Tag | `v0.2.0` 等形式，可 `marketplace add --ref` |
+| 变更 | [`CHANGELOG.md`](./CHANGELOG.md) |
 
 ```bash
-npm test
-npm run build
-npm run package:plugin    # 刷新 plugins/grokodex（版本戳仍为当前 package.json）
-npm run check:plugin      # 确认树与组装一致
-git add plugins/grokodex .agents/plugins .claude-plugin
-git commit -m "fix: …"
-git push
+# 日常改代码（不升版本）
+npm test && npm run package:plugin && npm run check:plugin
+
+# 正式发版（工作区干净）
+./scripts/release.sh patch|minor|major [--push]
+# 或：./scripts/release.sh 0.2.1 --push
 ```
 
-### 正式发版（推荐）
+---
 
-工作区干净时：
+## 常见问题
 
-```bash
-# patch | minor | major，或显式 0.2.1
-./scripts/release.sh minor
-# 本地会：改 package.json → test → package:plugin → commit → 打 tag vX.Y.Z
+| 问题 | 处理 |
+| :-- | :-- |
+| 插件装了但超时 / MCP `-32000` | 先查本机 Grok：`grok whoami` 或 `grok -m … -p "ping"`，不是先重装插件 |
+| 日志 `User unauthorized` + 无限 Reconnecting | 官方 session 失效；`grok login` 后**重启宿主**。有 `relay_connected` 多半**不是代理**问题 |
+| `Device not configured` | 登录态/设备未就绪；官方路径重新 login；无 TTY 的 shell 里 `whoami` 可能误导 |
+| `grok_setup` 显示 auth 有文件但仍失败 | 目前 mainly 看 `auth.json` 是否存在；**不能**证明 token 仍被官方接受 |
+| Claude 起不来 / 找不到 `bundle.mjs` | 需 **≥0.2.0**（`${CLAUDE_PLUGIN_ROOT}`）。旧版相对路径会被解析成**会话工作区** |
+| MCP skipped / 两个 grokodex | 关掉手写或项目 `.mcp.json` 里的同名 MCP，只留插件 MCP |
+| 只要第三方上游仍超时 | 修好 `config.toml` 后，坏官方 session + 默认 leader 仍可能连 `code.grok.com`；`GROKODEX_USE_LEADER=0` 或修好 login |
+| 改了源码宿主没变 | 源码目录 ≠ 已装插件；需 `package:plugin` 提交或跑 install 脚本 |
 
-git push origin HEAD && git push origin vX.Y.Z
-# 或一步推送：
-./scripts/release.sh minor --push
-```
+更细的术语表（`restricted` / `inherit` / leader 等）见下方折叠。
 
-等价 npm script：`npm run release -- minor --push`。
+<details>
+<summary><strong>术语速查</strong></summary>
 
-**当前版本：0.2.0**（Claude 路径修复 + 版本化发版流程）。
+| 术语 | 含义 |
+| :-- | :-- |
+| 宿主 | Codex / Claude Code 等客户端 |
+| bridge | 本插件 MCP 实现，转调 `grok` |
+| marketplace | 插件目录；本仓是 Git marketplace，非官方默认商店 |
+| MCP | 宿主调用外部工具的协议；本插件为本地 stdio |
+| restricted | 默认受限权限 |
+| inherit | 继承宿主权限（需用户明确 + `host_sandbox`） |
+| Leader | Grok 暖进程 |
+| one-shot | 不用 leader，单次拉起 |
+| host_thread_id | 宿主线程 id，用于会话续作 |
+| CLAUDE_PLUGIN_ROOT | Claude 注入的插件根路径变量 |
+
+</details>
+
 ---
 
 ## 限制（非目标）
 
-- 不替换宿主默认模型为 Grok  
-- 无本机可运行的 **Grok CLI + 可用上游鉴权** 则无法工作（含多数 Cloud agent）；鉴权可以是 OAuth、官方 API Key 或第三方网关，**不强制** `grok login`  
-- 不在 Grokodex 内代管第三方 key / 不替代 `~/.grok/config.toml` 的 Custom Models 配置  
+- 不把宿主默认模型换成 Grok  
+- 无本机 **Grok CLI + 可用上游** 则无法工作（含多数 Cloud agent）  
+- 不在 Grokodex 内代管第三方 key  
 - 不做完整 Grok TUI / ACP 嵌套 UI  
-- 不把 Grok 每个内置工具都做成独立 MCP tool（其余走 `grok_run`）  
+- 不进 OpenAI / Anthropic **官方默认插件商店**（仅 Git marketplace）  
 - 不静默自动提权  
-- 不进入 OpenAI / Anthropic **官方默认插件商店**（提供的是 **第三方 Git marketplace**）
+
+---
+
+## 贡献与支持
+
+- Issue / PR：<https://github.com/anlostsheep/grokodex/issues>  
+- 反馈时请尽量附：`grok --version`、`grok whoami` 摘要（**不要**贴 `auth.json` / key）、是否第三方上游、是否 `User unauthorized`、宿主类型  
 
 ---
 
 ## Star History
 
-如果这个项目对你有帮助，欢迎点亮右上角 **Star**，方便更多人发现。
+如果这个项目对你有帮助，欢迎点 **Star**。
 
 <!-- star-history:start -->
 <picture>
@@ -602,31 +360,15 @@ git push origin HEAD && git push origin vX.Y.Z
 <!-- star-history:end -->
 
 <p align="center">
-  <a href="https://www.star-history.com/?type=date&repos=anlostsheep%2Fgrokodex">在 star-history.com 查看交互图</a>
+  <a href="https://www.star-history.com/?type=date&repos=anlostsheep%2Fgrokodex">star-history.com</a>
   ·
   <a href="https://github.com/anlostsheep/grokodex/stargazers">Stargazers</a>
 </p>
 
 ---
 
-## 贡献与支持
+<div align="center">
 
-- 提交 Issue / PR：<https://github.com/anlostsheep/grokodex/issues>  
-- 使用中请先：本机 `grok whoami`（或第三方 `grok -m … -p "ping"`）→ 宿主内 `grok_setup`  
-- 开 Issue 时尽量附上：`error.code` / `hint`、是否出现 `User unauthorized` 或 `Device not configured`、是否使用第三方上游、是否关闭 leader  
+**[MIT License](./LICENSE)** · Copyright (c) 2026 Grokodex contributors
 
----
-
-## 许可证
-
-```
-MIT License
-
-Copyright (c) 2026 Grokodex contributors
-```
-
-本软件按 MIT 协议授权。你可自由使用与再分发，但须保留版权与许可声明；软件按「现状」提供，不附带任何担保。
-
-**完整条款：** [`LICENSE`](./LICENSE)
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+</div>
