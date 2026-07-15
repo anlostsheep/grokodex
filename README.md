@@ -301,31 +301,47 @@ npm run check:plugin
 
 如果这个项目对你有帮助，欢迎点亮右上角 **Star**，方便更多人发现。
 
-<a href="https://www.star-history.com/#anlostsheep/grokodex&Date">
-  <picture>
-    <source
-      media="(prefers-color-scheme: dark)"
-      srcset="https://api.star-history.com/svg?repos=anlostsheep/grokodex&type=Date&theme=dark"
-    />
-    <source
-      media="(prefers-color-scheme: light)"
-      srcset="https://api.star-history.com/svg?repos=anlostsheep/grokodex&type=Date"
-    />
-    <img
-      alt="Star History Chart — anlostsheep/grokodex"
-      src="https://api.star-history.com/svg?repos=anlostsheep/grokodex&type=Date"
-      width="100%"
-    />
-  </picture>
-</a>
-
 <p align="center">
-  <a href="https://www.star-history.com/#anlostsheep/grokodex&Date">在 star-history.com 查看交互图</a>
-  ·
-  <a href="https://github.com/anlostsheep/grokodex/stargazers">Stargazers</a>
+  <a href="https://github.com/anlostsheep/grokodex/stargazers">
+    <img src="https://img.shields.io/github/stars/anlostsheep/grokodex?style=for-the-badge&logo=github&label=Stars" alt="GitHub Stars"/>
+  </a>
+  &nbsp;
+  <a href="https://www.star-history.com/#anlostsheep/grokodex&Date">
+    <img src="https://img.shields.io/badge/Star%20History-open%20chart-blue?style=for-the-badge" alt="Open Star History"/>
+  </a>
+  &nbsp;
+  <a href="https://github.com/anlostsheep/grokodex/stargazers">
+    <img src="https://img.shields.io/badge/Stargazers-view-lightgrey?style=for-the-badge" alt="Stargazers"/>
+  </a>
 </p>
 
-> 说明：趋势图由 [star-history](https://www.star-history.com/) 根据 GitHub star 数据生成。新仓库在 star 较少时曲线会较平，属正常现象。
+<p align="center">
+  <a href="https://www.star-history.com/#anlostsheep/grokodex&Date"><strong>在 star-history.com 打开趋势图</strong></a>
+</p>
+
+### 在 README 里显示实时曲线图（仓库维护者）
+
+自 **2026-06** 起，GitHub 将 [stargazers API](https://github.blog/changelog/2026-06-30-upcoming-access-restrictions-to-public-api-endpoints-and-ui-views/) 限制为**仅仓库 admin / collaborator** 可访问。  
+因此下面这种**不带 token** 的旧写法会请求失败，GitHub 上只剩空白（图裂）：
+
+```text
+https://api.star-history.com/svg?repos=OWNER/REPO&type=Date
+```
+
+要在本 README 里嵌入**可渲染**的曲线图，请由仓库所有者按 [star-history 官方说明](https://www.star-history.com/blog/how-to-use-github-star-history#how-to-embed-the-chart-in-your-readme) 操作：
+
+1. 创建 [Fine-grained PAT](https://github.com/settings/personal-access-tokens/new)  
+   - Resource owner：`anlostsheep`  
+   - 仅本仓库（或 All repositories）  
+   - Permissions → **Metadata: Read-only**（仅此权限即可）  
+2. 打开 [star-history.com](https://www.star-history.com/#anlostsheep/grokodex&Date) → 查询本仓库  
+3. 在页面 **Show real-time chart on your README.md** 区域粘贴 token → **Generate embed code**  
+4. 复制 **GitHub README.md** 格式代码，替换本节下方的占位块  
+
+> 生成结果里的 token 是 **加密后** 的字符串，可放进公开 README；star-history 服务端仅在内存中解密拉数，不落盘、不记日志（以其官方说明为准）。
+
+<!-- 将 star-history 生成的 <picture> / <img> 嵌入代码粘贴到下一行之后 -->
+
 
 ---
 
