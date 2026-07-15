@@ -32,6 +32,10 @@ export interface GrokodexConfig {
      * Default true (reserved for future failure handling; short path always on).
      */
     narrow_tools_strict: boolean;
+    /** When true, host_thread_id map may --resume (default true). */
+    session_reuse: boolean;
+    /** When true, failed --resume retries without resume (default true). */
+    session_resume_fallback: boolean;
 }
 /**
  * Load bridge config from environment variables.

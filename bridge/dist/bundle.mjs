@@ -15495,7 +15495,9 @@ function loadConfig(env = process.env) {
     imagine_tools: parseToolsCsv(env.GROKODEX_IMAGINE_TOOLS, "image_gen"),
     x_search_timeout_ms: parsePositiveInt(env.GROKODEX_X_SEARCH_TIMEOUT_MS, 9e4),
     imagine_timeout_ms: parsePositiveInt(env.GROKODEX_IMAGINE_TIMEOUT_MS, 12e4),
-    narrow_tools_strict: parseBool(env.GROKODEX_NARROW_TOOLS_STRICT, true)
+    narrow_tools_strict: parseBool(env.GROKODEX_NARROW_TOOLS_STRICT, true),
+    session_reuse: parseBool(env.GROKODEX_SESSION_REUSE, true),
+    session_resume_fallback: parseBool(env.GROKODEX_SESSION_RESUME_FALLBACK, true)
   };
 }
 
@@ -16588,6 +16590,177 @@ async function handleGrokImagine(args, deps) {
 // bridge/src/tools/run.ts
 import { existsSync as existsSync3 } from "node:fs";
 import { join as join3 } from "node:path";
+
+// bridge/src/session-map.ts
+import { createHash } from "node:crypto";
+function emptyMeta(partial2) {
+  return {
+    resumed: false,
+    host_thread_id: null,
+    fingerprint: null,
+    grok_session_id: null,
+    map_updated: false,
+    ...partial2
+  };
+}
+function normalizeHostThreadId(raw, env) {
+  const t = typeof raw === "string" ? raw.trim() : "";
+  if (!t) return null;
+  if (t.startsWith("codex:") || t.startsWith("claude:")) return t;
+  if (env.CLAUDECODE === "1" || env.CLAUDE_CODE_ENTRYPOINT) {
+    return `claude:${t}`;
+  }
+  const origin = env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE?.toLowerCase() ?? "";
+  if (origin.includes("codex") || env.CODEX_THREAD_ID || env.CODEX_SHELL === "1") {
+    return `codex:${t}`;
+  }
+  return t;
+}
+function extractDenyAllowTokens(cliArgs) {
+  const out = [];
+  for (let i = 0; i < cliArgs.length; i++) {
+    const a = cliArgs[i];
+    if ((a === "--deny" || a === "--allow" || a === "--disallowed-tools" || a === "--tools") && i + 1 < cliArgs.length) {
+      out.push(`${a}=${cliArgs[i + 1]}`);
+    }
+    if (a === "--always-approve") out.push(a);
+  }
+  return out.sort();
+}
+function buildPermissionFingerprint(input) {
+  const cwd = input.cwd.trim() || ".";
+  const model = input.model?.trim() || "default";
+  const tokens = extractDenyAllowTokens(input.cliArgs);
+  const payload = {
+    v: 1,
+    requested: input.audit.requested,
+    effective: input.audit.effective,
+    host_sandbox: input.audit.host_sandbox,
+    alwaysApprove: input.alwaysApprove || tokens.includes("--always-approve"),
+    tokens,
+    cwd,
+    model
+  };
+  const json = JSON.stringify(payload);
+  const hash = createHash("sha256").update(json).digest("hex").slice(0, 16);
+  return `v1|${hash}`;
+}
+function createSessionMap(opts = {}) {
+  const maxEntries = opts.maxEntries ?? 200;
+  const entries = [];
+  function key(h, f) {
+    return `${h}\0${f}`;
+  }
+  const index = /* @__PURE__ */ new Map();
+  return {
+    get(hostThreadId, fingerprint) {
+      const e = index.get(key(hostThreadId, fingerprint));
+      return e?.grokSessionId ?? null;
+    },
+    set(hostThreadId, fingerprint, grokSessionId) {
+      const k = key(hostThreadId, fingerprint);
+      const existing = index.get(k);
+      if (existing) {
+        existing.grokSessionId = grokSessionId;
+        existing.updatedAt = Date.now();
+        return;
+      }
+      const entry = {
+        hostThreadId,
+        fingerprint,
+        grokSessionId,
+        updatedAt: Date.now()
+      };
+      index.set(k, entry);
+      entries.push(entry);
+      while (entries.length > maxEntries) {
+        const old = entries.shift();
+        if (!old) break;
+        const ok2 = key(old.hostThreadId, old.fingerprint);
+        const cur = index.get(ok2);
+        if (cur === old) index.delete(ok2);
+      }
+    }
+  };
+}
+var defaultMap = null;
+function getDefaultSessionMap() {
+  if (!defaultMap) defaultMap = createSessionMap();
+  return defaultMap;
+}
+function resolveSessionPlan(input) {
+  const host = input.hostThreadId;
+  const fp = input.fingerprint;
+  const base = (reason, extra = {}) => emptyMeta({
+    reason,
+    host_thread_id: host,
+    fingerprint: fp,
+    ...extra
+  });
+  if (input.fresh) {
+    return {
+      resumeSid: null,
+      shouldUpdateMap: Boolean(host),
+      meta: base("fresh_requested", { resumed: false })
+    };
+  }
+  const explicit = input.explicitSessionId?.trim() || null;
+  if (explicit) {
+    return {
+      resumeSid: explicit,
+      shouldUpdateMap: Boolean(host),
+      meta: base("explicit_session_id", {
+        resumed: true,
+        grok_session_id: explicit
+      })
+    };
+  }
+  if (!input.reuseEnabled) {
+    return {
+      resumeSid: null,
+      shouldUpdateMap: false,
+      meta: base("reuse_disabled")
+    };
+  }
+  if (!host) {
+    return {
+      resumeSid: null,
+      shouldUpdateMap: false,
+      meta: base("no_host_key")
+    };
+  }
+  const hit = input.map.get(host, fp);
+  if (hit) {
+    return {
+      resumeSid: hit,
+      shouldUpdateMap: true,
+      meta: base("host_map_hit", {
+        resumed: true,
+        grok_session_id: hit
+      })
+    };
+  }
+  return {
+    resumeSid: null,
+    shouldUpdateMap: true,
+    meta: base("fingerprint_miss")
+  };
+}
+function applyResumeCliFlags(args, resumeSid) {
+  if (!resumeSid) return [...args];
+  return [...args, "--resume", resumeSid];
+}
+function markSessionMapUpdated(meta2, updated) {
+  return { ...meta2, map_updated: updated };
+}
+function attachGrokSessionId(meta2, sid) {
+  return {
+    ...meta2,
+    grok_session_id: sid ?? meta2.grok_session_id
+  };
+}
+
+// bridge/src/tools/run.ts
 function parseSandboxValue(raw) {
   return raw === "read-only" || raw === "workspace-write" || raw === "danger-full-access" ? raw : null;
 }
@@ -16714,6 +16887,27 @@ async function handleGrokRun(args, deps) {
     }
     const cwd = normalized.cwd?.trim() || process.cwd();
     const timeoutMs = typeof normalized.timeout_ms === "number" && normalized.timeout_ms > 0 ? normalized.timeout_ms : DEFAULT_TIMEOUT_MS;
+    const hostThreadId = normalizeHostThreadId(
+      normalized.host_thread_id,
+      deps.envForHostHint ?? env
+    );
+    const alwaysApprove = perm.cliArgs.includes("--always-approve");
+    const fingerprint = buildPermissionFingerprint({
+      audit: perm.audit,
+      cliArgs: perm.cliArgs,
+      cwd,
+      model: normalized.model,
+      alwaysApprove
+    });
+    const map = deps.sessionMap ?? getDefaultSessionMap();
+    let sessionPlan = resolveSessionPlan({
+      map,
+      hostThreadId,
+      fingerprint,
+      fresh: normalized.fresh === true,
+      explicitSessionId: normalized.session_id?.trim() || null,
+      reuseEnabled: deps.config.session_reuse
+    });
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, normalized.use_leader, {
       env,
@@ -16728,10 +16922,11 @@ async function handleGrokRun(args, deps) {
         leader.error.hint
       );
     }
-    const cliArgs = applyLeaderCliFlags(
-      buildCliArgs(perm, normalized),
-      leader.cli
+    const buildArgs = (leaderCli, resumeSid) => applyResumeCliFlags(
+      applyLeaderCliFlags(buildCliArgs(perm, normalized), leaderCli),
+      resumeSid
     );
+    let cliArgs = buildArgs(leader.cli, sessionPlan.resumeSid);
     const runReq = {
       bin: resolved.path,
       args: cliArgs,
@@ -16745,13 +16940,25 @@ async function handleGrokRun(args, deps) {
         cli: { use: false, socket: leader.meta.socket },
         meta: markLeaderRunFallback(leader.meta)
       };
-      const retryArgs = applyLeaderCliFlags(
-        buildCliArgs(perm, normalized),
-        leader.cli
-      );
       result = await deps.run({
         ...runReq,
-        args: retryArgs
+        args: buildArgs(leader.cli, sessionPlan.resumeSid)
+      });
+    }
+    if (!result.timedOut && result.code !== 0 && sessionPlan.resumeSid && deps.config.session_resume_fallback) {
+      sessionPlan = {
+        ...sessionPlan,
+        resumeSid: null,
+        meta: {
+          ...sessionPlan.meta,
+          resumed: false,
+          reason: "resume_failed_fallback",
+          grok_session_id: null
+        }
+      };
+      result = await deps.run({
+        ...runReq,
+        args: buildArgs(leader.cli, null)
       });
     }
     if (result.timedOut) {
@@ -16773,9 +16980,17 @@ async function handleGrokRun(args, deps) {
     }
     const parsed = parseGrokJsonOutput(result.stdout);
     const text = parsed?.text ?? (result.stdout.trim() ? result.stdout.trim() : void 0);
+    const grokSid = parsed?.sessionId;
+    let sessionMeta = attachGrokSessionId(sessionPlan.meta, grokSid);
+    if (sessionPlan.shouldUpdateMap && hostThreadId && grokSid) {
+      map.set(hostThreadId, fingerprint, grokSid);
+      sessionMeta = markSessionMapUpdated(sessionMeta, true);
+    } else {
+      sessionMeta = markSessionMapUpdated(sessionMeta, false);
+    }
     return okResult("grok_run", {
       text,
-      session_id: parsed?.sessionId,
+      session_id: grokSid,
       permission_mode: mode,
       permission: perm.audit,
       meta: {
@@ -16783,7 +16998,8 @@ async function handleGrokRun(args, deps) {
         cwd,
         model: normalized.model,
         exit_code: result.code,
-        leader: leader.meta
+        leader: leader.meta,
+        session: sessionMeta
       }
     });
   } catch (err) {
@@ -17456,6 +17672,18 @@ var TOOLS = [
         use_leader: {
           type: "boolean",
           description: "Override GROKODEX_USE_LEADER for this call (default: env/config, on by default)"
+        },
+        host_thread_id: {
+          type: "string",
+          description: "Host conversation/task id (Codex CODEX_THREAD_ID or Claude CLAUDE_CODE_SESSION_ID). Enables session reuse with permission fingerprinting."
+        },
+        fresh: {
+          type: "boolean",
+          description: "Force a new Grok session (ignore map). Updates map slot when host_thread_id is set."
+        },
+        session_id: {
+          type: "string",
+          description: "Explicit Grok session id to --resume (overrides host map lookup)."
         }
       },
       required: ["prompt"]
@@ -17594,7 +17822,10 @@ function parseGrokRunArgs(raw) {
     max_turns: asNumber(args.max_turns),
     timeout_ms: asNumber(args.timeout_ms),
     extra_rules: asString(args.extra_rules),
-    use_leader: typeof args.use_leader === "boolean" ? args.use_leader : void 0
+    use_leader: typeof args.use_leader === "boolean" ? args.use_leader : void 0,
+    host_thread_id: typeof args.host_thread_id === "string" ? args.host_thread_id : void 0,
+    fresh: args.fresh === true ? true : args.fresh === false ? false : void 0,
+    session_id: typeof args.session_id === "string" ? args.session_id : void 0
   };
 }
 function parseGrokImagineArgs(raw) {

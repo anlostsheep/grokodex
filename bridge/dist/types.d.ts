@@ -55,3 +55,12 @@ export interface LeaderMeta {
     fallback: boolean;
     fallback_reason: string | null;
 }
+export type SessionResumeReason = "host_map_hit" | "explicit_session_id" | "fresh_requested" | "no_host_key" | "map_miss" | "fingerprint_miss" | "permission_changed" | "resume_failed_fallback" | "reuse_disabled";
+export interface SessionMeta {
+    resumed: boolean;
+    reason: SessionResumeReason;
+    host_thread_id: string | null;
+    fingerprint: string | null;
+    grok_session_id: string | null;
+    map_updated: boolean;
+}
