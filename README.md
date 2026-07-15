@@ -301,19 +301,17 @@ npm run check:plugin
 
 如果这个项目对你有帮助，欢迎点亮右上角 **Star**，方便更多人发现。
 
-<a href="https://www.star-history.com/?type=date&repos=anlostsheep%2Fgrokodex">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=anlostsheep/grokodex&type=date&theme=dark&legend=top-left&sealed_token=AAKIw8dHIAQ3FG24qVyYaFlTlDQLp9pyYcdzBg9Hry6JoFmwmC-dIz3nghb8IHmRvpyVTMNF9vZkH6lv5V-D1Yd9g_aWGo0ppjQLRtyyPWfLDcpGalD5LFBu4nMAxu3icsFUDxbr-odTM1HCw-xoBewykiYliRGk8WvMDDwTbPo9frKuHr00W_PqiJfC" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=anlostsheep/grokodex&type=date&legend=top-left&sealed_token=AAKIw8dHIAQ3FG24qVyYaFlTlDQLp9pyYcdzBg9Hry6JoFmwmC-dIz3nghb8IHmRvpyVTMNF9vZkH6lv5V-D1Yd9g_aWGo0ppjQLRtyyPWfLDcpGalD5LFBu4nMAxu3icsFUDxbr-odTM1HCw-xoBewykiYliRGk8WvMDDwTbPo9frKuHr00W_PqiJfC" />
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=anlostsheep/grokodex&type=date&legend=top-left&sealed_token=AAKIw8dHIAQ3FG24qVyYaFlTlDQLp9pyYcdzBg9Hry6JoFmwmC-dIz3nghb8IHmRvpyVTMNF9vZkH6lv5V-D1Yd9g_aWGo0ppjQLRtyyPWfLDcpGalD5LFBu4nMAxu3icsFUDxbr-odTM1HCw-xoBewykiYliRGk8WvMDDwTbPo9frKuHr00W_PqiJfC" />
-  </picture>
-</a>
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 <p align="center">
   <a href="https://www.star-history.com/?type=date&repos=anlostsheep%2Fgrokodex">在 star-history.com 查看交互图</a>
   ·
   <a href="https://github.com/anlostsheep/grokodex/stargazers">Stargazers</a>
 </p>
+
+> 曲线图由本仓库 CI（`star-history` workflow）用仓库权限拉取 stargazer 数据后**提交为静态 SVG**。  
+> 自 2026-06 起 GitHub 限制了公开 stargazers API，第三方在线 `api.star-history.com` 实时图常会超时/空白；静态图更可靠。首次需在 Actions 里手动跑一次 **Star History**，或等待定时任务。
 
 ---
 

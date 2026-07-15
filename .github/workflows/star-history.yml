@@ -1,0 +1,34 @@
+# Self-updating star history chart (static SVG in-repo).
+# Needed after GitHub restricted public stargazers API (2026-06):
+# live api.star-history.com embeds often time out / render blank.
+name: Star History
+
+on:
+  schedule:
+    - cron: "0 */12 * * *" # twice daily UTC
+  watch:
+    types: [started] # refresh soon after a new star
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-history
+  cancel-in-progress: false
+
+jobs:
+  star-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: narayann7/star-history-action@v1
+        with:
+          repos: ${{ github.repository }}
+          type: Date
+          themes: light,dark
+          update-readme: true
+          readme: README.md
+          readme-format: picture
+          commit: true
+          commit-message: "chore: update star history [skip ci]"
