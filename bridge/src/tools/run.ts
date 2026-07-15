@@ -24,6 +24,16 @@ import {
   type RunGrokRequest,
   type RunGrokResult,
 } from "../runner.js";
+import {
+  applyResumeCliFlags,
+  attachGrokSessionId,
+  buildPermissionFingerprint,
+  getDefaultSessionMap,
+  markSessionMapUpdated,
+  normalizeHostThreadId,
+  resolveSessionPlan,
+  type SessionMapStore,
+} from "../session-map.js";
 import type {
   CodexApproval,
   HostSandbox,
@@ -47,6 +57,12 @@ export interface GrokRunArgs {
   extra_rules?: string;
   /** Per-call override for GROKODEX_USE_LEADER. */
   use_leader?: boolean;
+  /** Host conversation/task id for session map reuse. */
+  host_thread_id?: string;
+  /** Force new Grok session; updates map slot when host_thread_id set. */
+  fresh?: boolean;
+  /** Explicit Grok session id to --resume (overrides map lookup). */
+  session_id?: string;
 }
 
 function parseSandboxValue(raw: string | undefined): HostSandbox | null {
@@ -88,6 +104,10 @@ export interface GrokRunDeps {
   existsSync?: (p: string) => boolean;
   whichFn?: WhichFn;
   prepareLeader?: typeof prepareLeader;
+  /** Injectable session map (defaults to process-wide singleton). */
+  sessionMap?: SessionMapStore;
+  /** Env used only for host-thread-id prefix hints (Claude/Codex). */
+  envForHostHint?: NodeJS.ProcessEnv | Record<string, string | undefined>;
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000;
@@ -241,6 +261,29 @@ export async function handleGrokRun(
         ? normalized.timeout_ms
         : DEFAULT_TIMEOUT_MS;
 
+    // Session plan (fingerprint + map lookup) before leader so argv can compose both.
+    const hostThreadId = normalizeHostThreadId(
+      normalized.host_thread_id,
+      deps.envForHostHint ?? env,
+    );
+    const alwaysApprove = perm.cliArgs.includes("--always-approve");
+    const fingerprint = buildPermissionFingerprint({
+      audit: perm.audit,
+      cliArgs: perm.cliArgs,
+      cwd,
+      model: normalized.model,
+      alwaysApprove,
+    });
+    const map = deps.sessionMap ?? getDefaultSessionMap();
+    let sessionPlan = resolveSessionPlan({
+      map,
+      hostThreadId,
+      fingerprint,
+      fresh: normalized.fresh === true,
+      explicitSessionId: normalized.session_id?.trim() || null,
+      reuseEnabled: deps.config.session_reuse,
+    });
+
     const prepare = deps.prepareLeader ?? prepareLeader;
     let leader = await prepare(deps.config, normalized.use_leader, {
       env,
@@ -256,10 +299,17 @@ export async function handleGrokRun(
       );
     }
 
-    const cliArgs = applyLeaderCliFlags(
-      buildCliArgs(perm, normalized),
-      leader.cli,
-    );
+    // Compose argv: permission/model/prompt → leader flags → optional --resume.
+    const buildArgs = (
+      leaderCli: typeof leader.cli,
+      resumeSid: string | null,
+    ): string[] =>
+      applyResumeCliFlags(
+        applyLeaderCliFlags(buildCliArgs(perm, normalized), leaderCli),
+        resumeSid,
+      );
+
+    let cliArgs = buildArgs(leader.cli, sessionPlan.resumeSid);
     const runReq: RunGrokRequest = {
       bin: resolved.path,
       args: cliArgs,
@@ -271,6 +321,7 @@ export async function handleGrokRun(
     let result: RunGrokResult = await deps.run(runReq);
 
     // One-shot retry when leader-path run fails and config allows fallback.
+    // Keep --resume so resume is not dropped when only the leader path fails.
     if (
       !result.timedOut &&
       result.code !== 0 &&
@@ -280,13 +331,32 @@ export async function handleGrokRun(
         cli: { use: false, socket: leader.meta.socket },
         meta: markLeaderRunFallback(leader.meta),
       };
-      const retryArgs = applyLeaderCliFlags(
-        buildCliArgs(perm, normalized),
-        leader.cli,
-      );
       result = await deps.run({
         ...runReq,
-        args: retryArgs,
+        args: buildArgs(leader.cli, sessionPlan.resumeSid),
+      });
+    }
+
+    // One-shot retry when --resume fails: strip resume, keep current leader flags.
+    if (
+      !result.timedOut &&
+      result.code !== 0 &&
+      sessionPlan.resumeSid &&
+      deps.config.session_resume_fallback
+    ) {
+      sessionPlan = {
+        ...sessionPlan,
+        resumeSid: null,
+        meta: {
+          ...sessionPlan.meta,
+          resumed: false,
+          reason: "resume_failed_fallback",
+          grok_session_id: null,
+        },
+      };
+      result = await deps.run({
+        ...runReq,
+        args: buildArgs(leader.cli, null),
       });
     }
 
@@ -313,10 +383,18 @@ export async function handleGrokRun(
     const text =
       parsed?.text ??
       (result.stdout.trim() ? result.stdout.trim() : undefined);
+    const grokSid = parsed?.sessionId;
+    let sessionMeta = attachGrokSessionId(sessionPlan.meta, grokSid);
+    if (sessionPlan.shouldUpdateMap && hostThreadId && grokSid) {
+      map.set(hostThreadId, fingerprint, grokSid);
+      sessionMeta = markSessionMapUpdated(sessionMeta, true);
+    } else {
+      sessionMeta = markSessionMapUpdated(sessionMeta, false);
+    }
 
     return okResult("grok_run", {
       text,
-      session_id: parsed?.sessionId,
+      session_id: grokSid,
       permission_mode: mode,
       permission: perm.audit,
       meta: {
@@ -325,6 +403,7 @@ export async function handleGrokRun(
         model: normalized.model,
         exit_code: result.code,
         leader: leader.meta,
+        session: sessionMeta,
       },
     });
   } catch (err) {
