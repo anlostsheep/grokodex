@@ -42,3 +42,6 @@ coverage/
 
 # Local process docs (designs/plans); not part of the shipped product
 docs/superpowers/
+
+# Local progress notes; not part of the shipped product
+docs/progress/
