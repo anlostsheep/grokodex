@@ -42,6 +42,7 @@
 
 - [项目协议（License）](#项目协议license)
 - [它是什么](#它是什么)
+- [术语说明](#术语说明)
 - [依赖](#依赖)
 - [Grok 鉴权（不必只靠 OAuth）](#grok-鉴权不必只靠-oauth)
 - [安装](#安装推荐公开-git-marketplace)
@@ -67,15 +68,15 @@
 | 插件 id | `grokodex` |
 | 形态 | skills + 本地 stdio MCP（预构建 `bridge/dist/bundle.mjs`） |
 | 安装 | Git marketplace（推荐）或本仓库开发脚本 |
-| 默认权限 | `restricted`（工作区可写；高危 shell 硬拒绝） |
+| 默认权限 | **`restricted`（受限）**：Grok 可在当前项目目录读写，但高危 shell 会被拒绝；见 [术语说明](#术语说明) |
 
-宿主是编排者，Grok 是 worker。能力走 **MCP 工具**；不要用 shell 旁路 `grok` 完成业务任务（安装 CLI、改 `~/.grok/config.toml`、配置鉴权除外）。
+**宿主**（Codex / Claude Code）负责编排；**Grok** 是被调用的 worker。能力走 **MCP 工具**；不要用 shell 旁路 `grok` 完成业务任务（安装 CLI、改 `~/.grok/config.toml`、配置鉴权除外）。
 
 ```
-Codex / Claude Code
+Codex / Claude Code          ← 宿主（你当前用的 AI 编程客户端）
         │  skills + MCP
         ▼
-  grokodex-bridge (node)
+  grokodex-bridge (node)     ← 本插件：把宿主的工具调用转成 grok 命令
         │
         ▼
   本机 Grok Build CLI（grok）
@@ -84,6 +85,74 @@ Codex / Claude Code
         ├── XAI_API_KEY 官方 API Key 和/或
         └── 第三方 / 自建 OpenAI 兼容上游（config.toml）
 ```
+
+---
+
+## 术语说明
+
+下文会反复出现这些词。**不需要先全部背会**；装插件、先 `grok_setup` 即可。需要调权限或排障时再查本表。
+
+### 角色与组件
+
+| 术语 | 含义（白话） |
+|------|----------------|
+| **宿主（host）** | 你正在用的客户端，如 **Codex**、**Claude Code**。它发起任务、展示结果。 |
+| **Grok / Grok Build / `grok`** | xAI 的本机编码 agent CLI（命令行程序）。Grokodex **不替代**它，只是帮宿主去调用它。 |
+| **插件 / plugin** | 装进宿主的扩展包；本项目的插件 id 是 `grokodex`。 |
+| **marketplace** | 插件「商店/目录」。本仓库是 **Git marketplace**（用 GitHub 地址添加），不是 OpenAI/Anthropic 官方默认商店。 |
+| **MCP** | Model Context Protocol。宿主通过 MCP 调用外部工具；Grokodex 以 **stdio**（标准输入输出）方式起一个本机 Node 进程。 |
+| **bridge / 桥接** | 仓库里的 `bridge/`：实现 MCP 四工具（setup/run/imagine/x_search），内部再去执行 `grok`。 |
+| **skill** | 给宿主 AI 看的说明书（何时调用哪个 MCP 工具）。本插件带 `grokodex-setup` 等四套。 |
+| **上游 / upstream** | 真正提供模型算力的一端：xAI 官方、或你配置的第三方/自建 API 网关。 |
+| **鉴权 / 登录态 / session** | 证明「可以代表你调用 Grok 上游」的凭证。可以是 `grok login` 的会话、`XAI_API_KEY`、或第三方 key——**不必只有 OAuth**。 |
+| **OAuth / `grok login`** | 浏览器授权登录官方账号的一种方式；**可选**，不是唯一方式。 |
+
+### 权限相关（`permission_mode` / sandbox）
+
+调用 `grok_run` 时，用参数 **`permission_mode`** 控制 Grok 能有多大胆。
+
+| 术语 | 含义（白话） | 什么时候用 |
+|------|----------------|------------|
+| **`restricted`（受限，默认）** | **默认档**。Grok 大致可在**当前工作区**读写文件，完成常规改代码；但 **高危 shell**（破坏性/越权类命令策略）会被 **硬拒绝**；也 **不会**打开「一律自动批准」类抬权。适合日常委托、第二意见、常规实现。 | **绝大多数情况**：不传 `permission_mode` 即为此档。 |
+| **`inherit`（继承宿主）** | 尽量让 Grok 的能力档 **贴近当前宿主会话**（例如宿主已是 Full Access 时，才可能给 Grok 更高能力）。**必须由用户明确要求**（「和 Codex/Claude 同权」「Full Access」等）；**禁止**因为任务难就自动改用 inherit。 | 仅当用户明确要求同权/抬权时。 |
+| **`host_sandbox`（宿主能力档）** | 使用 `inherit` 时，告诉桥接「宿主现在大概是哪一档权限」的标签。MCP 子进程通常 **读不到** 宿主会话的实时权限，所以要靠参数或环境变量传入。 | 与 `inherit` 一起用；缺了可能得到 `INHERIT_UNAVAILABLE`。 |
+| **`read-only`** | `host_sandbox` 取值之一：只读——Grok 侧应避免改文件。 | 宿主本身是只读沙箱时。 |
+| **`workspace-write`** | 可写当前工作区——与默认 `restricted` 的能力档接近。 | 宿主允许改项目文件时。 |
+| **`danger-full-access`** | 近似「全开」：会抬权并启用 always-approve 一类行为，但仍保留部分绝对禁令。费用与风险都更高。 | 仅用户明确 Full-Access / 同宿主最高权时。 |
+| **`codex_sandbox`** | **`host_sandbox` 的旧别名**（兼容早期命名）。两字段同时传且不一致 → 报错 `INVALID_ARGS`。新集成请用 `host_sandbox`。 |
+| **`always-approve`** | Grok/CLI 侧一种「少问确认、多自动批准」的行为；主要在 full 类档位出现。不是你日常默认。 | 理解 `danger-full-access` 时知道有这层含义即可。 |
+| **`INHERIT_UNAVAILABLE`** | 错误码：选了 `inherit`，但桥接 **不知道** 宿主能力档（没传 `host_sandbox` 等），**不会**偷偷当成 full。 | 改为 `restricted`，或补上正确的 `host_sandbox`。 |
+
+**一句话记权限：**  
+默认 **`restricted` = 能干活但有护栏**；**`inherit` = 跟宿主同权，仅用户点名，且要说清 `host_sandbox`**。
+
+### 运行方式：Leader 与会话
+
+| 术语 | 含义（白话） |
+|------|----------------|
+| **headless** | 无完整 TUI 界面，用命令行方式跑一轮/多轮 Grok agent（Grokodex 的主路径）。 |
+| **Leader（暖进程）** | 本机常驻的 Grok 后台进程，避免每次冷启动。默认 **开启**。官方路径下它依赖有效登录态；态坏了会出现 `User unauthorized` 等（见 [排障](#排障装上了但超时--unauthorized)）。 |
+| **one-shot** | 不经过 leader，每次单独拉起 `grok`。设 `GROKODEX_USE_LEADER=0` 即强制此模式。 |
+| **fallback** | leader 失败时是否退回 one-shot（默认会退）。 |
+| **会话续作 / session reuse** | 多轮 `grok_run` 尽量 **接着同一条 Grok 对话**（CLI `--resume`），而不是每轮全新聊天。 |
+| **`host_thread_id`** | 宿主侧「这一次任务/线程」的 id。传给 `grok_run` 后，桥接用来查找是否已有可 resume 的 Grok 会话。建议格式：`codex:<id>` / `claude:<id>`。 |
+| **`session_id`** | Grok 侧会话 id（响应里也会返回）。一般交给 bridge 管理；高级用法可显式传入做 `--resume`。 |
+| **`fresh: true`** | 强制新开 Grok 会话，不接着旧对话。换话题、宿主 `/clear` 后可用。 |
+| **权限指纹** | bridge 根据权限档等算出的标记。同 `host_thread_id` 但权限档变了（如 restricted→inherit）会开新 Grok 会话，避免「低权对话里突然高权」的混乱。 |
+
+**Leader ≠ 会话续作：**  
+Leader = 进程是否暖着；会话续作 = 聊的是不是同一条 thread。两者独立。
+
+### 工具与协议里常见字段
+
+| 术语 | 含义（白话） |
+|------|----------------|
+| **`grok_setup` / `grok_run` / `grok_imagine` / `grok_x_search`** | 四个 MCP **工具名**（逻辑名）。Claude 界面可能显示成 `mcp__…__grok_run`，本质相同。 |
+| **`ok` / `error.code` / `hint`** | 统一返回包：`ok` 是否成功；失败时 `error.code` 稳定错误码，`hint` 给人看的建议。 |
+| **`meta.leader` / `meta.session`** | 响应里的诊断信息：leader 是否用上、是否 resume 等。排障时优先看这两块。 |
+| **stdio** | 进程用标准输入输出通信（相对 HTTP MCP）。公开安装里即：`node` 跑 `bundle.mjs`。 |
+| **`bundle.mjs`** | 预构建的单文件 bridge，用户 **不必** 为启动 MCP 再 `npm install`。 |
+| **PATH** | 系统「可执行文件搜索路径」。公开安装用命令名 `node` / `grok`，要求它们在 PATH 里。 |
 
 ---
 
@@ -313,67 +382,78 @@ GROKODEX_USE_LEADER=0
 |------|------|
 | `prompt` | **必填** |
 | `cwd` | 工作目录（默认宿主工作区） |
-| `permission_mode` | `restricted`（默认）\| `inherit` |
-| `host_sandbox` | inherit 时：`read-only` \| `workspace-write` \| `danger-full-access` |
-| `host_thread_id` | 宿主会话 id，用于续聊 |
-| `fresh` | `true` 强制新 Grok 会话 |
-| `session_id` | 显式 Grok `--resume` id |
-| `model` / `max_turns` / `timeout_ms` / `extra_rules` | 可选 |
+| `permission_mode` | 权限档：`restricted`（**受限，默认**）或 `inherit`（**继承宿主**）；见 [术语](#权限相关permission_mode--sandbox) |
+| `host_sandbox` | 仅 `inherit` 时需要：宿主能力档 `read-only` / `workspace-write` / `danger-full-access` |
+| `host_thread_id` | 宿主线程 id，用于 **会话续作**（多轮接着聊） |
+| `fresh` | `true` = 强制新 Grok 会话，不 resume |
+| `session_id` | 高级：显式指定 Grok 会话 id（一般可省略） |
+| `model` / `max_turns` / `timeout_ms` / `extra_rules` | 可选：模型名、轮数上限、超时毫秒、附加规则 |
 
-`codex_sandbox` 是 `host_sandbox` 的兼容别名；两者冲突 → `INVALID_ARGS`。
-
+`codex_sandbox` = `host_sandbox` 的兼容别名；两字段同时传且不一致 → `INVALID_ARGS`。
 ---
 
 ## 权限
 
-| 档位 | 何时用 | 行为 |
-|------|--------|------|
-| **`restricted`（默认）** | 日常委托 | 工作区可写；高危 shell 拒绝；不 always-approve |
-| **`inherit`（显式）** | 用户明确要求与宿主同权 | 需已知 `host_sandbox`；禁止因任务难自动抬权 |
+术语定义见 [术语说明 · 权限相关](#权限相关permission_mode--sandbox)。此处说明 **怎么用**。
 
-`grok_imagine` / `grok_x_search` **永不**继承完整 shell。
+### 两档：`permission_mode`
 
-inherit 解析顺序：参数 `host_sandbox` → 环境变量 → 静态 `~/.codex/config.toml`（仅可能对 Codex 有用）→ 仍未知则 **`INHERIT_UNAVAILABLE`**（不会静默 full）。
+| 档位 | 中文理解 | 何时用 | 行为摘要 |
+|------|----------|--------|----------|
+| **`restricted`** | **受限（默认）** | 日常委托、第二意见、常规改代码 | 可在当前工作区读写；高危 shell 硬拒绝；不 always-approve。**不传该参数 = 此档。** |
+| **`inherit`** | **继承宿主** | 用户 **明确** 说「和宿主同权 / Full Access」 | 按 `host_sandbox` 映射能力；**禁止**因任务难自动改用此档 |
 
-| `host_sandbox` | 近似效果 |
-|----------------|----------|
-| `read-only` | 禁止 edit/write 类工具 |
-| `workspace-write` | 与 restricted 同级 |
-| `danger-full-access` | 抬权 + always-approve；仍保留绝对禁令 |
+`grok_imagine` / `grok_x_search` **固定窄权限**，**永不** `inherit` 完整 shell。
 
-> **警告：** Full-Access / `danger-full-access` 费用与破坏力更高，仅在用户明确要求时使用。
+### `inherit` 时如何填 `host_sandbox`
 
+桥接进程通常拿不到宿主「此刻」的实时权限，所以要显式告诉它：
+
+| `host_sandbox` | 中文 | 近似效果 |
+|----------------|------|----------|
+| `read-only` | 只读 | 禁止 edit/write 类 |
+| `workspace-write` | 工作区可写 | 与默认 `restricted` 同级 |
+| `danger-full-access` | 高危全开 | 抬权 + always-approve；仍有绝对禁令 |
+
+**解析顺序：**  
+调用参数 `host_sandbox`（或兼容别名 `codex_sandbox`）→ 环境变量 `GROKODEX_HOST_SANDBOX` / `GROKODEX_CODEX_SANDBOX` → 静态读 `~/.codex/config.toml`（仅可能对 Codex 有用）→ 仍未知则 **`INHERIT_UNAVAILABLE`**（**不会**静默当成 full）。
+
+> **警告：** `danger-full-access` / Full-Access 费用与破坏力更高，仅在用户明确要求时使用。
 ---
 
 ## Leader 与会话续作
 
 ### Leader（暖进程，默认开）
 
+术语：**Leader** = 本机预热的 Grok 后台；**one-shot** = 每次单独启动。见 [术语 · Leader 与会话](#运行方式leader-与会话)。
+
 | 环境变量 | 默认 | 含义 |
 |----------|------|------|
-| `GROKODEX_USE_LEADER` | true | 使用 leader；`0`/`false` 强制 one-shot |
-| `GROKODEX_LEADER_FALLBACK` | true | 失败退回 one-shot |
-| `GROKODEX_LEADER_ENSURE` | true | 尝试拉起 leader |
+| `GROKODEX_USE_LEADER` | true | 使用 leader；`0`/`false` = 强制 **one-shot** |
+| `GROKODEX_LEADER_FALLBACK` | true | leader 失败时退回 one-shot |
+| `GROKODEX_LEADER_ENSURE` | true | socket 不可用时尝试拉起 leader |
 
 排障看响应里的 `meta.leader`。本地脚本可用 `--no-leader`。  
 
-默认 leader 会连本机 Grok 暖进程，而暖进程在 **官方路径** 下依赖有效 session；session 失效时可能出现官方 WS `User unauthorized` 与 Grokodex 侧超时——见 [排障](#排障装上了但超时--unauthorized)。
+官方路径下 leader 依赖有效登录态；session 失效时可能出现 WS `User unauthorized` 与超时——见 [排障](#排障装上了但超时--unauthorized)。
 
 ### 会话续作（session reuse）
 
-多轮同一任务时传入 `host_thread_id`，权限指纹匹配时会对 Grok `--resume`：
+术语：**会话续作** = 多轮 `grok_run` 尽量接着同一条 Grok 对话（`--resume`），不是每轮新开聊天。
 
-| 宿主 | 建议 |
-|------|------|
-| Codex | `CODEX_THREAD_ID` → `codex:<id>` |
-| Claude Code | `CLAUDE_CODE_SESSION_ID` → `claude:<id>` |
+多轮同一任务时传入 **`host_thread_id`**，权限档一致时 bridge 会对 Grok 做 resume：
 
-**Leader ≠ 会话续作。** 换话题或 `/clear` 后请重读 id，或设 `fresh: true`。排障看 `meta.session`。
+| 宿主 | 建议写法 |
+|------|----------|
+| Codex | 读环境变量 `CODEX_THREAD_ID`，传 `host_thread_id=codex:<该值>` |
+| Claude Code | 读 `CLAUDE_CODE_SESSION_ID`，传 `host_thread_id=claude:<该值>` |
+
+**Leader ≠ 会话续作**（进程暖 vs 对话连续）。换话题或宿主 `/clear` 后请重读 id，或设 `fresh: true`。排障看 `meta.session`。
 
 | 环境变量 | 默认 | 含义 |
 |----------|------|------|
-| `GROKODEX_SESSION_REUSE` | true | 启用 host map resume |
-| `GROKODEX_SESSION_RESUME_FALLBACK` | true | resume 失败则重试不带 resume |
+| `GROKODEX_SESSION_REUSE` | true | 启用按 `host_thread_id` 的 resume |
+| `GROKODEX_SESSION_RESUME_FALLBACK` | true | resume 失败则去掉 resume 再试一次 |
 
 ---
 
